@@ -1,0 +1,141 @@
+name: uipath-otel
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.148.0
+    user: "0:0"
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./dev/collector/config.yaml:/etc/otelcol/config.yaml:ro
+      - collector-data:/var/lib/otelcol
+    ports:
+      - "127.0.0.1:14318:4318"
+      - "127.0.0.1:13133:13133"
+    depends_on:
+      thanos-receive:
+        condition: service_started
+      elasticsearch-setup:
+        condition: service_completed_successfully
+      tempo:
+        condition: service_started
+
+  thanos-receive:
+    image: quay.io/thanos/thanos:v0.41.0
+    user: "0:0"
+    command:
+      - receive
+      - --tsdb.path=/data
+      - --tsdb.retention=7d
+      - --label=receive_replica="local"
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+      - --remote-write.address=0.0.0.0:19291
+      - --receive.otlp-promote-resource-attributes=uipath.installation
+      - --receive.otlp-promote-resource-attributes=uipath.tenant.id
+      - --receive.otlp-promote-resource-attributes=deployment.environment.name
+    volumes:
+      - thanos-data:/data
+
+  thanos-query:
+    image: quay.io/thanos/thanos:v0.41.0
+    command:
+      - query
+      - --http-address=0.0.0.0:9090
+      - --endpoint=thanos-receive:10901
+    ports:
+      - "127.0.0.1:19090:9090"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:19200:9200"
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
+
+  elasticsearch-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    entrypoint: [/bin/sh, /config/setup.sh]
+    volumes:
+      - ./dev/elasticsearch:/config:ro
+    depends_on:
+      - elasticsearch
+
+  tempo:
+    image: grafana/tempo:2.10.1
+    user: "0:0"
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./dev/tempo/config.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:13200:3200"
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:13000:3000"
+    volumes:
+      - ./dev/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./dev/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  mock:
+    profiles: [demo]
+    build:
+      context: .
+      target: mock
+
+  demo-adapter:
+    profiles: [demo]
+    build:
+      context: .
+      target: runtime
+    environment:
+      UIPATH_URL: http://mock:8080
+      UIPATH_CLIENT_ID: demo
+      UIPATH_CLIENT_SECRET: demo-only
+      UIPATH_INSTALLATION: demo
+      UIPATH_TENANT: demo
+      UIPATH_ENVIRONMENT: development
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      POLL_INTERVAL: 15s
+      INCLUDE_LOG_MESSAGES: "true"
+      COLLECT_QUEUES: "true"
+    volumes:
+      - demo-state:/data
+    depends_on:
+      - mock
+      - collector
+
+  adapter:
+    profiles: [live]
+    build:
+      context: .
+      target: runtime
+    env_file:
+      - path: .local/adapter.env
+        required: false
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+    volumes:
+      - live-state:/data
+    depends_on:
+      - collector
+
+volumes:
+  collector-data:
+  thanos-data:
+  elastic-data:
+  tempo-data:
+  demo-state:
+  live-state:

@@ -1,0 +1,19 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: python3 -m unittest discover -s scripts -p "test_*.py" -v
+      - run: python3 scripts/generate-dashboard.py
+      - run: docker compose config --quiet
+      - run: git diff --exit-code

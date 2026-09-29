@@ -1,0 +1,12 @@
+.local/
+.env
+.env.*
+!.env.example
+bin/
+coverage.out
+*.db
+*.db-*
+.DS_Store
+
+__pycache__/
+*.py[cod]

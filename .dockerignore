@@ -1,0 +1,10 @@
+.git
+.local
+.env
+.env.*
+bin
+*.db
+coverage.out
+
+__pycache__/
+*.py[cod]

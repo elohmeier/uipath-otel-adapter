@@ -1,0 +1,1730 @@
+{
+  "uid": "uipath-overview",
+  "title": "UiPath monitoring",
+  "tags": [
+    "uipath",
+    "opentelemetry"
+  ],
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": false,
+  "timezone": "browser",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "installation",
+        "label": "Installation",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "uipath-metrics"
+        },
+        "query": {
+          "query": "label_values(uipath_folder_info, uipath_installation)",
+          "refId": "variable"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "folder",
+        "label": "Folder",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "uipath-metrics"
+        },
+        "query": {
+          "query": "query_result(max by (uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~\"$installation\"}))",
+          "refId": "variable"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "regex": "/uipath_folder_id=\"(?<value>[^\"]+)\".*uipath_folder_name=\"(?<text>[^\"]+)\"/"
+      },
+      {
+        "name": "process",
+        "label": "Process",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "uipath-metrics"
+        },
+        "query": {
+          "query": "label_values(uipath_job_last_duration_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}, uipath_process_name)",
+          "refId": "variable"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "severity",
+        "label": "Log level",
+        "type": "custom",
+        "query": "TRACE,DEBUG,INFO,WARN,ERROR,FATAL",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "queue",
+        "label": "Queue",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "uipath-metrics"
+        },
+        "query": {
+          "query": "query_result(max by (uipath_queue_id,uipath_queue_name) (uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}))",
+          "refId": "queue"
+        },
+        "regex": "/uipath_queue_id=\"(?<value>[^\"]+)\".*uipath_queue_name=\"(?<text>[^\"]+)\"/",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "UiPath \u2014 collection and execution overview",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Current job counts and coverage follow **Folder**. Execution metrics, logs and traces also follow **Process**. Live counters exclude bootstrap history."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Collection health",
+      "type": "stat",
+      "description": "Discovery, enabled-dataset coverage and successful collection within 3 minutes. Missing signals are Unknown. Scope is selected folders, not the process filter.",
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(min((uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} * (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} < bool 180)) and on (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_dataset) (uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1))) * (min(uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"})) * ((count(uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} and on (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_dataset) (uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1)) == bool count(uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1))) * min(uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"})",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "min": 0,
+          "max": 1,
+          "noValue": "Unknown",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Degraded",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Healthy",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Pending jobs",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 6,
+        "y": 3,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(uipath_jobs{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_job_state=\"Pending\"})",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Running jobs",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(uipath_jobs{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_job_state=\"Running\"})",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Oldest pending job",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 18,
+        "y": 3,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(uipath_job_oldest_pending_age_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"})",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Active jobs by state",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (uipath_job_state) (uipath_jobs{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"})",
+          "legendFormat": "{{uipath_job_state}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "New completions / hour",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (uipath_job_state) (rate(uipath_jobs_completed_total{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_process_name=~\"${process:regex}\"}[$__rate_interval])) * 3600",
+          "legendFormat": "{{uipath_job_state}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Latest execution duration by process",
+      "type": "table",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(uipath_job_last_duration_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_process_name=~\"${process:regex}\"}) * on (uipath_installation,uipath_tenant_id,uipath_folder_id) group_left(uipath_folder_name) (max by (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}))",
+          "legendFormat": "{{uipath_folder_id}} / {{uipath_process_name}}",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Duration",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "uipath_installation",
+                "uipath_tenant_id",
+                "uipath_folder_name",
+                "uipath_folder_id",
+                "uipath_process_name",
+                "Value"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "receive_replica": true,
+              "deployment_environment_name": true
+            },
+            "renameByName": {
+              "uipath_folder_name": "Folder",
+              "uipath_folder_id": "Folder ID",
+              "uipath_process_name": "Process",
+              "uipath_installation": "Installation",
+              "uipath_tenant_id": "Tenant",
+              "Value": "Duration"
+            },
+            "indexByName": {
+              "uipath_folder_name": 0,
+              "uipath_process_name": 1,
+              "Value": 2,
+              "uipath_folder_id": 3,
+              "uipath_installation": 4,
+              "uipath_tenant_id": 5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Time since last successful job",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - uipath_process_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_process_name=~\"${process:regex}\"}) * on (uipath_installation,uipath_tenant_id,uipath_folder_id) group_left(uipath_folder_name) (max by (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}))",
+          "legendFormat": "{{uipath_folder_name}} / {{uipath_process_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Execution duration p95 \u2014 new completions",
+      "type": "timeseries",
+      "description": "Requires new completed jobs after monitoring started; bootstrap history is excluded.",
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(histogram_quantile(0.95, sum by (le,uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_process_name) (rate(uipath_job_duration_seconds_bucket{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_process_name=~\"${process:regex}\"}[$__rate_interval])))) * on (uipath_installation,uipath_tenant_id,uipath_folder_id) group_left(uipath_folder_name) (max by (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}))",
+          "legendFormat": "{{uipath_folder_name}} / {{uipath_process_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Dataset freshness",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 63,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}) * on (uipath_installation,uipath_tenant_id,uipath_folder_id) group_left(uipath_folder_name) (max by (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"}))",
+          "legendFormat": "{{uipath_folder_name}} / {{uipath_dataset}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Queued OTLP batches",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "uipath_collector_outbox_pending{uipath_installation=~\"$installation\"}",
+          "legendFormat": "pending",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Quarantined OTLP batches",
+      "type": "timeseries",
+      "description": "Permanent or partial rejection. Batches are retained locally for investigation, never automatically replayed.",
+      "gridPos": {
+        "x": 8,
+        "y": 70,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "uipath_collector_outbox_quarantined{uipath_installation=~\"$installation\"}",
+          "legendFormat": "quarantined",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Queue backlog by state",
+      "type": "timeseries",
+      "description": "Current New/InProgress items. Linked views use max per queue, never a sum across folders. Only successful, fresh queue views are included.",
+      "gridPos": {
+        "x": 16,
+        "y": 70,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_state) ((uipath_queue_items{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}} / {{uipath_queue_state}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Robot messages and lifecycle events",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 76,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "uipath-logs"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "uipath.installation:/${installation:regex}/ AND uipath.folder.id:/${folder:regex}/ AND uipath.process.name:/${process:regex}/ AND log.level:/${severity:regex}/ AND NOT message:\"Robot log (message collection disabled)\"",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "logs"
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false
+      },
+      "description": "Events for the selected source/folder and time range. Expand a record to inspect identity and follow trace.id to Tempo. Earlier message-disabled placeholders are hidden."
+    },
+    {
+      "id": 16,
+      "title": "Reconstructed execution traces",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "uipath-traces"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ span.uipath.trace.origin = \"orchestrator_api\" && resource.uipath.installation =~ \"${installation:regex}\" && span.uipath.folder.id =~ \"${folder:regex}\" && span.uipath.process.name =~ \"${process:regex}\" }",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "description": "Job-summary spans for the selected source/folder and time range. Click a trace to inspect job state, duration and correlation."
+    },
+    {
+      "id": 17,
+      "title": "Folders visible / known",
+      "type": "stat",
+      "description": "Authorized selected folders, including folders without jobs. This is not proof that every server folder is authorized.",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"})",
+          "legendFormat": "Visible",
+          "range": false,
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "count(uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"})",
+          "legendFormat": "Known",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 18,
+      "title": "Datasets successful / enabled",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count((uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_dataset) (uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id,uipath_dataset) ((time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} < bool 180) == 1)) or (0 * count(uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1))",
+          "legendFormat": "Successful",
+          "range": false,
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "count(uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1)",
+          "legendFormat": "Enabled",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 19,
+      "title": "Oldest successful collection",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 8,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"})",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 20,
+      "title": "Completed executions",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "uipath-logs"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "uipath.installation:/${installation:regex}/ AND uipath.folder.id:/${folder:regex}/ AND uipath.process.name:/${process:regex}/ AND uipath.event.kind:\"job.completed\"",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "100"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "@timestamp",
+                "uipath.folder.name",
+                "uipath.folder.id",
+                "uipath.process.name",
+                "uipath.job.state",
+                "uipath.job.duration",
+                "trace.id"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "@timestamp": "Completed at",
+              "uipath.folder.name": "Folder",
+              "uipath.folder.id": "Folder ID",
+              "uipath.process.name": "Process",
+              "uipath.job.state": "Outcome",
+              "uipath.job.duration": "Duration",
+              "trace.id": "Trace"
+            },
+            "indexByName": {
+              "@timestamp": 0,
+              "uipath.folder.name": 1,
+              "uipath.folder.id": 2,
+              "uipath.process.name": 3,
+              "uipath.job.state": 4,
+              "uipath.job.duration": 5,
+              "trace.id": 6
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Trace"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open trace",
+                    "url": "/explore?left=%7B%22datasource%22%3A%20%22uipath-traces%22%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22queryType%22%3A%20%22traceql%22%2C%20%22query%22%3A%20%22${__value.raw}%22%7D%5D%7D",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outcome"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Successful": {
+                        "color": "green"
+                      },
+                      "Faulted": {
+                        "color": "red"
+                      },
+                      "Stopped": {
+                        "color": "orange"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Process"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 350
+              }
+            ]
+          }
+        ]
+      },
+      "description": "Latest 100 completed-job events in the selected period. Older events may lack folder names or duration; stable folder IDs remain available."
+    },
+    {
+      "id": 21,
+      "title": "Queue collection",
+      "type": "stat",
+      "description": "Last queue collection result. Check collection age and folder coverage above; missing values are Unknown. Queue panels ignore the process filter.",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max((uipath_collector_dataset_status{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} != 1) or ((uipath_collector_dataset_status{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) or (4 * ((uipath_collector_dataset_status{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) unless on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1)))))",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Disabled",
+                  "color": "gray"
+                },
+                "1": {
+                  "text": "Healthy",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "Failed",
+                  "color": "red"
+                },
+                "3": {
+                  "text": "Forbidden",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "Stale / unavailable",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 22,
+      "title": "Queues observed",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 6,
+        "y": 30,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 23,
+      "title": "Eligible work",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_eligible{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1)))))",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 24,
+      "title": "Overdue active items",
+      "type": "stat",
+      "description": "",
+      "gridPos": {
+        "x": 18,
+        "y": 30,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_overdue{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1)))))",
+          "legendFormat": "{{uipath_folder_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 25,
+      "title": "Oldest eligible item",
+      "type": "timeseries",
+      "description": "Age since creation or defer date, whichever is later. Future-deferred items are excluded.",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_oldest_pending_age_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Deferred work",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 35,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_deferred{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "title": "Transaction outcomes \u2014 rolling window",
+      "type": "timeseries",
+      "description": "Snapshot counts by EndProcessing within QUEUE_HISTORY_LOOKBACK (default 24h). Gauges, not counters; do not rate or sum over time. Retried attempts are separate records, not unique business transactions.",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_state) ((uipath_queue_transactions{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}} / {{uipath_queue_state}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "title": "Processing exceptions \u2014 rolling window",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_exception_type) ((uipath_queue_exceptions{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}} / {{uipath_queue_exception_type}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "title": "Mean processing duration \u2014 rolling window",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_processing_mean_duration_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "title": "Processing samples \u2014 rolling window",
+      "type": "timeseries",
+      "description": "",
+      "gridPos": {
+        "x": 8,
+        "y": 49,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_processing_samples{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 31,
+      "title": "Completed retry attempts \u2014 rolling window",
+      "type": "timeseries",
+      "description": "Completed item records with RetryNumber > 0; not a sum of RetryNumber and not unique business transactions.",
+      "gridPos": {
+        "x": 16,
+        "y": 49,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "uipath-metrics"
+      },
+      "maxDataPoints": 1440,
+      "interval": "15s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (uipath_installation,uipath_tenant_id,uipath_queue_id) ((uipath_queue_retry_attempts{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))) * on (uipath_installation,uipath_tenant_id,uipath_queue_id) group_left(uipath_queue_name) (max by (uipath_installation,uipath_tenant_id,uipath_queue_id,uipath_queue_name) ((uipath_queue_info{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_queue_id=~\"${queue:regex}\"}) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) ((uipath_collector_dataset_enabled_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_scrape_success_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} == 1) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (time() - uipath_collector_last_success_time_seconds{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\",uipath_dataset=\"queues\"} < 180) and on (uipath_installation,uipath_tenant_id,uipath_folder_id) (uipath_collector_folder_available_ratio{uipath_installation=~\"$installation\",uipath_folder_id=~\"$folder\"} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{uipath_installation=~\"$installation\"} == 1))))",
+          "legendFormat": "{{uipath_queue_name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

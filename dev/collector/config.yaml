@@ -1,0 +1,62 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  transform/logs:
+    log_statements:
+      - context: scope
+        statements:
+          - set(attributes["elastic.mapping.mode"], "ecs")
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+exporters:
+  otlp_http/thanos:
+    metrics_endpoint: http://thanos-receive:19291/api/v1/otlp
+    sending_queue:
+      storage: file_storage
+      num_consumers: 1
+      queue_size: 2000
+    retry_on_failure:
+      max_elapsed_time: 0s
+  otlp_http/tempo:
+    endpoint: http://tempo:4318
+    sending_queue:
+      storage: file_storage
+      queue_size: 2000
+    retry_on_failure:
+      max_elapsed_time: 0s
+  elasticsearch:
+    endpoint: http://elasticsearch:9200
+    logs_index: logs-uipath-default
+    mapping:
+      allowed_modes: [ecs, otel]
+    sending_queue:
+      storage: file_storage
+      queue_size: 2000
+    retry:
+      enabled: true
+      max_retries: 10
+service:
+  extensions: [health_check, file_storage]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [otlp_http/thanos]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/logs]
+      exporters: [elasticsearch]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [otlp_http/tempo]
