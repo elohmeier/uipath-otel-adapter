@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read-only backend smoke test. Prints counts, never source payloads or names."""
+from promql import with_source_metadata
 import argparse
 import json
 import time
@@ -18,12 +19,12 @@ def check_coverage(installation, require_queues=False, fetch=request, now=None):
     now = time.time() if now is None else now
     selector = '{uipath_installation=' + json.dumps(installation) + '}'
     def query(metric):
-        response = fetch("http://localhost:19090", "/api/v1/query?" + urllib.parse.urlencode({"query": metric + selector}))
+        response = fetch("http://localhost:19090", "/api/v1/query?" + urllib.parse.urlencode({"query": with_source_metadata(metric + selector)}))
         assert response.get("status") == "success" and not response.get("warnings"), "metric query incomplete"
         return response["data"]["result"]
     def tenant(row):
         labels = row["metric"]
-        return labels.get("uipath_installation"), labels.get("uipath_tenant_id")
+        return labels.get("instance"), labels.get("uipath_installation"), labels.get("uipath_tenant_id")
     def folder(row):
         return tenant(row) + (row["metric"].get("uipath_folder_id"),)
     def dataset(row):
@@ -39,7 +40,7 @@ def check_coverage(installation, require_queues=False, fetch=request, now=None):
     assert discovery and all(v == 1 for v in discovery.values()), "discovery failed or missing"
     folders = values(query("uipath_collector_folder_available_ratio"), folder)
     assert folders and all(v == 1 for v in folders.values()), "folder disappeared or unavailable"
-    assert {k[:2] for k in folders} == set(discovery), "tenant folder coverage incomplete"
+    assert {k[:3] for k in folders} == set(discovery), "tenant folder coverage incomplete"
     enabled = values(query("uipath_collector_dataset_enabled_ratio"), dataset)
     expected = {k + (d,) for k in folders for d in ("jobs", "logs", "queues")}
     assert set(enabled) == expected and all(v in (0, 1) for v in enabled.values()), "dataset configuration missing"
@@ -58,7 +59,7 @@ def check_coverage(installation, require_queues=False, fetch=request, now=None):
 
 def check(a):
     q = 'count(uipath_jobs{uipath_installation='+json.dumps(a.installation)+'})'
-    m = request("http://localhost:19090", "/api/v1/query?"+urllib.parse.urlencode({"query":q}))
+    m = request("http://localhost:19090", "/api/v1/query?"+urllib.parse.urlencode({"query":with_source_metadata(q)}))
     assert m["data"]["result"], "no source metrics"
     l = request("http://localhost:19200", "/logs-uipath-*/_search", {"size":1,"track_total_hits":True,
         "query":{"bool":{"filter":[{"term":{"uipath.installation":a.installation}},{"exists":{"field":"trace.id"}}]}}})
@@ -77,7 +78,7 @@ def check(a):
             'min(uipath_collector_scrape_success_ratio{uipath_installation='+json.dumps(a.installation)+',uipath_dataset="queues"})',
             'count(uipath_queue_info{uipath_installation='+json.dumps(a.installation)+'})',
         ]:
-            result=request("http://localhost:19090", "/api/v1/query?"+urllib.parse.urlencode({"query":query}))
+            result=request("http://localhost:19090", "/api/v1/query?"+urllib.parse.urlencode({"query":with_source_metadata(query)}))
             assert result["data"]["result"] and float(result["data"]["result"][0]["value"][1]) >= 1, "queue collection/inventory missing"
     return {"metric_series":int(float(m["data"]["result"][0]["value"][1])),"correlated_logs":l["hits"]["total"]["value"],"trace_lookup":"ok","dashboard_panels":len(d["dashboard"]["panels"]),"collection_health":"ok"}
 

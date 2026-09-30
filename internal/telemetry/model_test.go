@@ -3,6 +3,8 @@ package telemetry
 import (
 	"context"
 	"errors"
+	metricexport "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	resource "go.opentelemetry.io/proto/otlp/resource/v1"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -117,5 +119,62 @@ func TestRetryAfterDefersOnlyAffectedSignal(t *testing.T) {
 	}
 	if calls["/v1/metrics"] != 1 || calls["/v1/traces"] != 1 {
 		t.Fatal("Retry-After or signal independence violated")
+	}
+}
+
+func TestResourceIdentityAcrossSignalsAndSources(t *testing.T) {
+	c := config.Config{Installation: "demo", Tenant: "tenant-a", Environment: "test"}
+	attrs := func(r *resource.Resource) map[string]string {
+		result := map[string]string{}
+		for _, a := range r.Attributes {
+			result[a.Key] = a.Value.GetStringValue()
+		}
+		return result
+	}
+	payload, err := MetricPayload(c, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metrics metricexport.ExportMetricsServiceRequest
+	if err := proto.Unmarshal(payload, &metrics); err != nil {
+		t.Fatal(err)
+	}
+	domain := attrs(metrics.ResourceMetrics[0].Resource)
+	self := attrs(metrics.ResourceMetrics[1].Resource)
+	if domain["service.name"] == self["service.name"] || domain["service.namespace"] != "uipath" {
+		t.Fatal("service roles must remain distinct")
+	}
+	id := domain["service.instance.id"]
+	if len(id) != 36 || id[14] != '5' || self["service.instance.id"] != id {
+		t.Fatal("expected a stable source-scoped UUIDv5")
+	}
+	lp, _ := LogPayload(c, nil)
+	var logs logexport.ExportLogsServiceRequest
+	if err := proto.Unmarshal(lp, &logs); err != nil {
+		t.Fatal(err)
+	}
+	tp, _ := TracePayload(c, nil)
+	var spans traceexport.ExportTraceServiceRequest
+	if err := proto.Unmarshal(tp, &spans); err != nil {
+		t.Fatal(err)
+	}
+	if attrs(logs.ResourceLogs[0].Resource)["service.instance.id"] != id || attrs(spans.ResourceSpans[0].Resource)["service.instance.id"] != id {
+		t.Fatal("domain identity differs by signal")
+	}
+	for _, other := range []config.Config{
+		{Installation: "demo-2", Tenant: c.Tenant, Environment: c.Environment},
+		{Installation: c.Installation, Tenant: "tenant-b", Environment: c.Environment},
+		{Installation: c.Installation, Tenant: c.Tenant, Environment: "production"},
+		{Installation: "demo/tenant-a", Tenant: "test", Environment: ""},
+	} {
+		if attrs(resourceFor(other, "uipath-orchestrator"))["service.instance.id"] == id {
+			t.Fatal("different source identities collided")
+		}
+	}
+	if attrs(resourceFor(c, "uipath-orchestrator"))["service.instance.id"] != id {
+		t.Fatal("identity changed on repeat export")
+	}
+	if domain["uipath.installation"] != c.Installation || domain["uipath.tenant.id"] != c.Tenant {
+		t.Fatal("source metadata lost")
 	}
 }

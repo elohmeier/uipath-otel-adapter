@@ -29,9 +29,6 @@ services:
       - --grpc-address=0.0.0.0:10901
       - --http-address=0.0.0.0:10902
       - --remote-write.address=0.0.0.0:19291
-      - --receive.otlp-promote-resource-attributes=uipath.installation
-      - --receive.otlp-promote-resource-attributes=uipath.tenant.id
-      - --receive.otlp-promote-resource-attributes=deployment.environment.name
     volumes:
       - thanos-data:/data
 

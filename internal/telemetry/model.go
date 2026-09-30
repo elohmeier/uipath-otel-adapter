@@ -2,8 +2,11 @@
 package telemetry
 
 import (
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -62,7 +65,20 @@ func IDs(installation, tenant, folder, job string) ([]byte, []byte) {
 	return h[:16], s[:8]
 }
 func resourceFor(c config.Config, service string) *resource.Resource {
-	return &resource.Resource{Attributes: Attrs(map[string]string{"service.name": service, "deployment.environment.name": c.Environment, "uipath.installation": c.Installation, "uipath.tenant.id": c.Tenant})}
+	// This identifies a logical source partition, not a robot or a backend node.
+	// The adapter has exactly one polling authority per installation/tenant.
+	identity, _ := json.Marshal([]string{"uipath-source-v1", c.Installation, c.Tenant, c.Environment})
+	// SemConv recommends this namespace for UUIDv5 IDs derived from inherent identity.
+	namespace := []byte{0x4d, 0x63, 0x00, 0x9a, 0x8d, 0x0f, 0x11, 0xee, 0xaa, 0xd7, 0x4c, 0x79, 0x6e, 0xd8, 0xe3, 0x20}
+	sum := sha1.Sum(append(namespace, identity...)) // UUIDv5 identity, not a security primitive.
+	id := sum[:16]
+	id[6] = (id[6] & 0x0f) | 0x50
+	id[8] = (id[8] & 0x3f) | 0x80
+	instance := fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
+	return &resource.Resource{Attributes: Attrs(map[string]string{
+		"service.name": service, "service.namespace": "uipath", "service.instance.id": instance,
+		"deployment.environment.name": c.Environment, "uipath.installation": c.Installation, "uipath.tenant.id": c.Tenant,
+	})}
 }
 func Scope() *common.InstrumentationScope {
 	return &common.InstrumentationScope{Name: "github.com/elohmeier/uipath-otel-adapter", Version: Version}

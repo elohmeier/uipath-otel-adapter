@@ -5,7 +5,8 @@ It implements separate `/v1/metrics`, `/v1/logs` and `/v1/traces` requests to on
 base endpoint. Transport responses are checked before source outbox deletion.
 
 Semantic baseline: OpenTelemetry Semantic Conventions **v1.43.0**. Standard
-resource attributes used here are stable `service.name` and
+resource attributes used here are stable `service.name`, `service.namespace`,
+`service.instance.id` and
 `deployment.environment.name`. Instrumentation scope identifies this adapter and
 its version. Application resource name is `uipath-orchestrator`; adapter
 self-metrics use `uipath-otel-adapter`. These are generic logical service names,
@@ -48,9 +49,29 @@ Metric dimensions are configured source identity, folder, process, state/outcome
 and queue where applicable. A single polling authority per source partition is
 required. The number of process groups grows with source inventory; operate with
 an explicit folder allowlist and monitor resulting cardinality. The local
-Collector preserves OTLP to Thanos, whose receiver explicitly promotes source
-identity and environment to labels; production receivers should likewise use
-an explicit promotion policy.
+Collector preserves OTLP to Thanos without resource promotion. Standard mapping
+produces `job` from `service.namespace/service.name` and `instance` from
+`service.instance.id`. Source metadata remains on `target_info`; the dashboard
+joins it on `(job, instance)` before domain-specific filtering and aggregation.
+Counter rates are calculated before joining metadata.
+
+`service.namespace=uipath` groups the two logical service roles. The instance ID
+is a UUIDv5 using the SemConv namespace and the JSON tuple
+`["uipath-source-v1", installation, tenant, environment]`. It identifies the
+configured logical Orchestrator tenant and its single polling authority, not an
+individual Orchestrator node, robot or collector process. The two roles share
+this source ID but have distinct service names; logs and spans use the same
+identity as domain metrics. Identity is stable across restarts to preserve
+persisted cumulative series, and distinct across sources and environments.
+Installation identifiers must be unique within the monitoring estate. Concurrent
+collectors for the same source remain unsupported.
+
+Changing to this contract creates new Prometheus series. Old promoted series and
+queued pre-upgrade OTLP batches keep their previous identity; the new dashboard
+does not fall back to ambiguous old series. Drain old outboxes and coordinate the
+adapter/dashboard rollout; short rate windows need fresh samples. Stored history
+is not rewritten. Generic platform promotion of environment metadata is optional;
+the sample stack needs no promotion flags at all.
 
 Robot logs use source TimeStamp and collection ObservedTime, native severity,
 an optional message body and `uipath.*` identifiers. Job lifecycle events use job

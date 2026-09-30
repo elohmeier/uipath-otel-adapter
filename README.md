@@ -228,5 +228,28 @@ rolling outcome window defaults to 24h, independently of the dashboard time rang
 Current active-job counts remain folder-scoped; process filters apply to execution
 metrics, logs and traces. Older events retain their original fields.
 
+Metrics use standard OTLP service identity (`job`/`instance` after translation).
+The dashboard obtains installation and tenant metadata through `target_info`
+joins; no application-specific resource promotion is required in Thanos. Use a
+unique installation identifier for each monitored source. When upgrading from
+the earlier promoted-label contract, deploy the adapter and dashboard together:
+old series remain stored but are not selected by the new dashboard. See the
+[identity and migration contract](docs/telemetry.md).
+
 The dashboard JSON is generated from neutral queries; it contains no runtime
 inventory, endpoints or samples from a monitored installation.
+
+To exercise metric identity without promotion, run the synthetic demo and a
+second tenant against the same mock (the temporary state stays in that container):
+
+```sh
+docker compose --profile demo run -d --no-deps --name uipath-demo-tenant-b \
+  -e UIPATH_TENANT=tenant-b -e STATE_PATH=/tmp/tenant-b.db demo-adapter
+# Allow at least one minute for counter-rate samples.
+python3 scripts/check-metric-identity.py
+docker rm -f uipath-demo-tenant-b
+```
+
+This verifies two distinct source instances, unpromoted metric labels and all
+metric dashboard queries, including metadata joins. For an isolated Compose
+project with different port mappings, pass `--metrics-url` to the check.

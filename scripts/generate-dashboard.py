@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate the neutral, provisioned UiPath dashboard. No runtime data is used."""
 import json
+from promql import with_source_metadata, SOURCE_JOBS
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -36,7 +37,7 @@ panel("Queue backlog — optional dataset", f'sum by (uipath_queue_id,uipath_que
 panels.append({"id":len(panels)+1,"title":"Robot logs and job lifecycle events","type":"logs","gridPos":{"x":0,"y":35,"w":24,"h":10},"datasource":{"type":"elasticsearch","uid":"uipath-logs"},"targets":[{"refId":"A","query":'uipath.installation:/${installation:regex}/ AND uipath.folder.id:/${folder:regex}/',"metrics":[{"id":"1","type":"logs"}],"bucketAggs":[],"timeField":"@timestamp"}],"options":{"showTime":True,"showLabels":False,"wrapLogMessage":True,"sortOrder":"Descending","enableLogDetails":True,"prettifyLogMessage":False},"description":"Events for the selected source/folder and time range. Expand a record to inspect identity and follow trace.id to Tempo."})
 panels.append({"id":len(panels)+1,"title":"Reconstructed execution traces","type":"table","gridPos":{"x":0,"y":45,"w":24,"h":9},"datasource":{"type":"tempo","uid":"uipath-traces"},"targets":[{"refId":"A","queryType":"traceql","query":'{ span.uipath.trace.origin = "orchestrator_api" && resource.uipath.installation =~ "${installation:regex}" && span.uipath.folder.id =~ "${folder:regex}" }',"limit":20,"tableType":"traces"}],"options":{"showHeader":True},"description":"Job-summary spans for the selected source/folder and time range. Click a trace to inspect job state, duration and correlation."})
 # Inventory names are joined at query time, keeping mutable names off counters.
-identity = "uipath_installation,uipath_tenant_id,uipath_folder_id"
+identity = "instance,uipath_installation,uipath_tenant_id,uipath_folder_id"
 info = f'max by ({identity},uipath_folder_name) (uipath_folder_info{{{selector}}})'
 process_selector = selector + ',uipath_process_name=~"${process:regex}"'
 def named(expr):
@@ -99,16 +100,17 @@ for p in panels:
     if p["id"] == 20: p["gridPos"]["y"] = 20
     elif p["gridPos"]["y"] >= 20: p["gridPos"]["y"] += 10
 variables=[]
-for name,label,query in [("installation","Installation","label_values(uipath_folder_info, uipath_installation)"),("folder","Folder",'query_result(max by (uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~"$installation"}))'),("process","Process",'label_values(uipath_job_last_duration_seconds{uipath_installation=~"$installation",uipath_folder_id=~"$folder"}, uipath_process_name)')]:
+for name,label,query in [("installation","Installation",f'label_values(target_info{{job=~"{SOURCE_JOBS}"}}, uipath_installation)' ),("folder","Folder",'query_result(max by (uipath_folder_id,uipath_folder_name) (uipath_folder_info{uipath_installation=~"$installation"}))'),("process","Process",'query_result(max by (uipath_process_name) (uipath_job_last_duration_seconds{uipath_installation=~"$installation",uipath_folder_id=~"$folder"}))')]:
     v={"name":name,"label":label,"type":"query","datasource":metrics,"query":{"query":query,"refId":"variable"},"refresh":2,"multi":True,"includeAll":True,"allValue":".*","current":{"text":"All","value":"$__all"}}
     if name == "folder": v["regex"] = '/uipath_folder_id="(?<value>[^\"]+)".*uipath_folder_name="(?<text>[^\"]+)"/'
+    if name == "process": v["regex"] = '/uipath_process_name="([^\"]+)"/'
     variables.append(v)
 variables.append({"name":"severity","label":"Log level","type":"custom","query":"TRACE,DEBUG,INFO,WARN,ERROR,FATAL","multi":True,"includeAll":True,"allValue":".*","current":{"text":"All","value":"$__all"}})
 # Queue views are folder-scoped at collection; deduplicate linked views by tenant
 # and queue identity before presenting totals. Failed/stale views are excluded.
-queue_identity = "uipath_installation,uipath_tenant_id,uipath_queue_id"
+queue_identity = "instance,uipath_installation,uipath_tenant_id,uipath_queue_id"
 queue_selector = selector + ',uipath_queue_id=~"${queue:regex}"'
-queue_ok = f'(uipath_collector_dataset_enabled_ratio{{{selector},uipath_dataset="queues"}} == 1) and on ({identity}) (uipath_collector_scrape_success_ratio{{{selector},uipath_dataset="queues"}} == 1) and on ({identity}) (time() - uipath_collector_last_success_time_seconds{{{selector},uipath_dataset="queues"}} < 180) and on ({identity}) (uipath_collector_folder_available_ratio{{{selector}}} == 1) and on (uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{{uipath_installation=~"$installation"}} == 1)'
+queue_ok = f'(uipath_collector_dataset_enabled_ratio{{{selector},uipath_dataset="queues"}} == 1) and on ({identity}) (uipath_collector_scrape_success_ratio{{{selector},uipath_dataset="queues"}} == 1) and on ({identity}) (time() - uipath_collector_last_success_time_seconds{{{selector},uipath_dataset="queues"}} < 180) and on ({identity}) (uipath_collector_folder_available_ratio{{{selector}}} == 1) and on (instance,uipath_installation,uipath_tenant_id) (uipath_collector_discovery_success_ratio{{uipath_installation=~"$installation"}} == 1)'
 def queue_view(expr):
     return f'({expr}) and on ({identity}) ({queue_ok})'
 queue_info = f'max by ({queue_identity},uipath_queue_name) ({queue_view(f"uipath_queue_info{{{queue_selector}}}")})'
@@ -144,5 +146,13 @@ panel("Mean processing duration — rolling window",queue_named("uipath_queue_pr
 panel("Processing samples — rolling window",queue_named("uipath_queue_processing_samples"),8,49,8,7,legend="{{uipath_queue_name}}")
 panel("Completed retry attempts — rolling window",queue_named("uipath_queue_retry_attempts"),16,49,8,7,legend="{{uipath_queue_name}}",description="Completed item records with RetryNumber > 0; not a sum of RetryNumber and not unique business transactions.")
 variables.append({"name":"queue","label":"Queue","type":"query","datasource":metrics,"query":{"query":'query_result(max by (uipath_queue_id,uipath_queue_name) (uipath_queue_info{uipath_installation=~"$installation",uipath_folder_id=~"$folder"}))',"refId":"queue"},"regex":'/uipath_queue_id="(?<value>[^\"]+)".*uipath_queue_name="(?<text>[^\"]+)"/',"refresh":2,"multi":True,"includeAll":True,"allValue":".*","current":{"text":"All","value":"$__all"}})
+# Enrich instant vectors (and counter rates) before domain-specific joins.
+for p in panels:
+    for target in p.get("targets", []):
+        if "expr" in target:
+            target["expr"] = with_source_metadata(target["expr"])
+for variable in variables:
+    if variable["type"] == "query" and variable["name"] != "installation":
+        variable["query"]["query"] = with_source_metadata(variable["query"]["query"])
 dashboard={"uid":"uipath-overview","title":"UiPath monitoring","tags":["uipath","opentelemetry"],"schemaVersion":39,"version":2,"editable":False,"timezone":"browser","time":{"from":"now-24h","to":"now"},"refresh":"30s","templating":{"list":variables},"panels":panels}
 (root/"dev/grafana/dashboards/uipath.json").write_text(json.dumps(dashboard,indent=2)+"\n")

@@ -1,4 +1,5 @@
 import copy
+import re
 import unittest
 import urllib.parse
 import smoke
@@ -18,13 +19,13 @@ class CoverageTest(unittest.TestCase):
                     self.add("last_success_time_seconds", folder, dataset, self.now-10)
 
     def add(self, metric, folder, dataset, value):
-        labels = {"uipath_installation":"example", "uipath_tenant_id":"tenant"}
+        labels = {"instance":"synthetic-source", "uipath_installation":"example", "uipath_tenant_id":"tenant"}
         if folder: labels["uipath_folder_id"] = folder
         if dataset: labels["uipath_dataset"] = dataset
         self.rows.setdefault("uipath_collector_"+metric, []).append({"metric":labels,"value":[self.now,str(value)]})
 
     def fetch(self, base, path):
-        metric = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)["query"][0].split("{", 1)[0]
+        metric = re.search(r"uipath_collector_[a-z_]+", urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)["query"][0]).group()
         return {"status":"success","data":{"result":copy.deepcopy(self.rows.get(metric, []))}}
 
     def check(self, **kwargs):
