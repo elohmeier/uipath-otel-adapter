@@ -66,6 +66,9 @@ def check(a):
     hits=l["hits"]["hits"]
     assert hits, "no correlated logs for installation"
     source=hits[0]["_source"]
+    if a.log_record_uid:
+        uid=source.get("log.record.uid") or source.get("log",{}).get("record",{}).get("uid")
+        assert isinstance(uid, str) and len(uid)==64 and all(c in '0123456789abcdef' for c in uid), "source log UID missing"
     trace=source.get("trace",{}).get("id") or source.get("trace.id")
     assert trace, "log has no trace identifier"
     t=request("http://localhost:13200", "/api/traces/"+trace)
@@ -87,6 +90,7 @@ def main():
     p.add_argument("--installation", required=True)
     p.add_argument("--timeout", type=int, default=90)
     p.add_argument("--queues", action="store_true", help="Require fresh queue collection and inventory")
+    p.add_argument("--log-record-uid", action="store_true", help="Require the demo's opt-in log.record.uid")
     a = p.parse_args()
     deadline = time.monotonic() + a.timeout
     while True:

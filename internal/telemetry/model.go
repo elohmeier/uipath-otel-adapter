@@ -84,7 +84,13 @@ func Scope() *common.InstrumentationScope {
 	return &common.InstrumentationScope{Name: "github.com/elohmeier/uipath-otel-adapter", Version: Version}
 }
 func LogPayload(c config.Config, records []*logs.LogRecord) ([]byte, error) {
-	return proto.Marshal(&logexport.ExportLogsServiceRequest{ResourceLogs: []*logs.ResourceLogs{{Resource: resourceFor(c, "uipath-orchestrator"), SchemaUrl: SchemaURL, ScopeLogs: []*logs.ScopeLogs{{Scope: Scope(), LogRecords: records}}}}})
+	r := &logexport.ExportLogsServiceRequest{ResourceLogs: []*logs.ResourceLogs{{Resource: resourceFor(c, "uipath-orchestrator"), SchemaUrl: SchemaURL, ScopeLogs: []*logs.ScopeLogs{{Scope: Scope(), LogRecords: records}}}}}
+	if c.LogRecordUID {
+		if _, err := addLogRecordUIDs(r); err != nil {
+			return nil, err
+		}
+	}
+	return proto.Marshal(r)
 }
 func TracePayload(c config.Config, spans []*traces.Span) ([]byte, error) {
 	return proto.Marshal(&traceexport.ExportTraceServiceRequest{ResourceSpans: []*traces.ResourceSpans{{Resource: resourceFor(c, "uipath-orchestrator"), SchemaUrl: SchemaURL, ScopeSpans: []*traces.ScopeSpans{{Scope: Scope(), Spans: spans}}}}})

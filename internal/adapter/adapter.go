@@ -453,7 +453,17 @@ func (a *Adapter) Flush(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if e = a.Sender.Send(ctx, p.Signal, p.Payload); e != nil {
+		payload = p.Payload
+		if p.Signal == "logs" && a.Config.LogRecordUID {
+			payload, e = telemetry.WithLogRecordUIDs(payload)
+		} else {
+			e = nil
+		}
+		if e == nil {
+			p.Payload = payload
+			e = a.Sender.Send(ctx, p.Signal, payload)
+		}
+		if e != nil {
 			var ex *telemetry.ExportError
 			permanent := errors.As(e, &ex) && ex.Permanent
 			delay := time.Duration(0)

@@ -107,6 +107,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       POLL_INTERVAL: 15s
       INCLUDE_LOG_MESSAGES: "true"
+      INCLUDE_LOG_RECORD_UID: "true"
       COLLECT_QUEUES: "true"
     volumes:
       - demo-state:/data

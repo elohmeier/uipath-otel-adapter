@@ -79,6 +79,37 @@ end time. Messages are off by default; enabling them may expose source payload
 content to the configured backend. Input/output arguments, queue payloads,
 Windows identities and RawMessage are not fetched.
 
+### Log identity opt-in
+
+`INCLUDE_LOG_RECORD_UID=true` adds `log.record.uid` to job-completion and robot
+log records. SemConv v1.43.0 defines this log attribute as **Development** and
+**Opt-In**, so it is off by default; the synthetic Compose demo enables it.
+The existing `uipath.event.id` remains available to older consumers.
+
+The UID is lowercase SHA-256 hex of the JSON string tuple
+`["uipath-log-v1", installation, tenant, environment, folderID, sourceEventID]`.
+The source event ID distinguishes job and robot records. It does not depend on
+message content or collection time. Identical messages from distinct source
+records remain distinct; repeat collection and outbox replay keep the same UID.
+Source IDs are subject to the adapter's existing validation and reuse limits.
+See the [attribute definition](https://github.com/open-telemetry/semantic-conventions/blob/v1.43.0/model/log/registry.yaml#L60)
+and [log requirement level](https://github.com/open-telemetry/semantic-conventions/blob/v1.43.0/model/log/common.yaml#L7).
+
+When enabled, delivery also adds UIDs to older queued log batches using the
+identity stored in each batch. Current process configuration never substitutes
+for queued source identity. Existing UIDs and other telemetry fields are retained;
+retryable delivery failures persist upgraded batches. A crash between receiver
+acceptance and local acknowledgment deterministically reproduces the same UID.
+Batches lacking installation, tenant, environment, folder or source event ID
+remain pending with an error; identity is never guessed from current settings.
+Enabling this option does not replay quarantined batches or reset checkpoints.
+
+Enable UID emission and verify the receiver sees it before switching downstream
+deduplication to this attribute. Receivers own any document-ID conversion. Old
+documents created using a different ID scheme are not retroactively deduplicated,
+and backend rollover/retention semantics can still allow duplicates. Keep the
+opt-in enabled for the lifetime of this delivery contract, including rollbacks.
+
 The local pipeline, not the adapter, requests Collector v0.148.0's ECS mapping.
 Native OTLP context becomes ECS `trace.id` and `span.id`; source log time becomes
 `@timestamp`; severity becomes `log.level`; string body becomes `message`.

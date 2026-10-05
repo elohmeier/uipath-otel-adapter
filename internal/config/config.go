@@ -21,7 +21,7 @@ type Config struct {
 	FolderIDs                                                                       map[int64]bool
 	PollInterval, Lookback, LogLookback, Overlap, Timeout, Freshness, QueueLookback time.Duration
 	PageSize, MaxRecords, MaxPending                                                int
-	Insecure, IncludeMessages, Logs, Queues, Once                                   bool
+	Insecure, IncludeMessages, LogRecordUID, Logs, Queues, Once                     bool
 }
 
 func Load() (Config, error) {
@@ -80,6 +80,7 @@ func Load() (Config, error) {
 		fallback string
 	}{
 		{"UIPATH_TLS_INSECURE", &c.Insecure, "false"}, {"INCLUDE_LOG_MESSAGES", &c.IncludeMessages, "false"},
+		{"INCLUDE_LOG_RECORD_UID", &c.LogRecordUID, "false"},
 		{"COLLECT_LOGS", &c.Logs, "true"}, {"COLLECT_QUEUES", &c.Queues, "false"},
 	} {
 		b, e := strconv.ParseBool(env(v.name, v.fallback))

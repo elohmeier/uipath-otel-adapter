@@ -38,3 +38,22 @@ func TestRejectInvalidProtocolAndCredentialsInURL(t *testing.T) {
 		t.Fatal("URL credentials accepted")
 	}
 }
+
+func TestLogRecordUIDOptIn(t *testing.T) {
+	base(t)
+	for _, value := range []string{"", "false", "true", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("INCLUDE_LOG_RECORD_UID", value)
+			c, err := Load()
+			if value == "invalid" {
+				if err == nil {
+					t.Fatal("invalid opt-in accepted")
+				}
+				return
+			}
+			if err != nil || c.LogRecordUID != (value == "true") {
+				t.Fatalf("unexpected opt-in: %v, %v", c.LogRecordUID, err)
+			}
+		})
+	}
+}

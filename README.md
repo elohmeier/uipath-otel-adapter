@@ -26,7 +26,7 @@ approximately 4 GiB of free Docker memory for the observability stack.
 
 ```sh
 docker compose --profile demo up -d --build
-python3 scripts/smoke.py --installation demo
+python3 scripts/smoke.py --installation demo --log-record-uid
 ```
 
 Open [UiPath monitoring](http://localhost:13000/d/uipath-overview/uipath-monitoring).
@@ -146,6 +146,7 @@ nonzero on an error; pending batches survive for the next run.
 | `MAX_PENDING_BATCHES` | `2000`; includes quarantined log/trace batches |
 | `COLLECT_LOGS` | `true` |
 | `INCLUDE_LOG_MESSAGES` | `false`; otherwise fetch and export the original message body |
+| `INCLUDE_LOG_RECORD_UID` | `false`; opt in to SemConv v1.43.0's Development `log.record.uid` for stable log identity |
 | `COLLECT_QUEUES` | `false`; collects queue inventory, active items and recent transaction outcomes |
 | `QUEUE_HISTORY_LOOKBACK` | `24h`; rolling EndProcessing window, separate from dashboard time range |
 | `STATE_PATH` | `.local/state.db`; container default `/data/state.db` |
