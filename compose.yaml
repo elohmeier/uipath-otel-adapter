@@ -109,6 +109,9 @@ services:
       INCLUDE_LOG_MESSAGES: "true"
       INCLUDE_LOG_RECORD_UID: "true"
       COLLECT_QUEUES: "true"
+      COLLECT_RUNTIMES: "true"
+      COLLECT_JOB_SNAPSHOTS: "true"
+      INCLUDE_ROBOT_USERNAMES: "true"
     volumes:
       - demo-state:/data
     depends_on:

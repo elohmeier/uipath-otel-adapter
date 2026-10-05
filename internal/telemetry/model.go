@@ -110,7 +110,9 @@ func JobSpan(c config.Config, folder string, j uipath.Job) *traces.Span {
 	if j.State == "Faulted" {
 		status.Code = traces.Status_STATUS_CODE_ERROR
 	}
-	return &traces.Span{TraceId: t, SpanId: s, Name: "uipath.job " + j.ReleaseName, Kind: traces.Span_SPAN_KIND_INTERNAL, StartTimeUnixNano: uint64(j.StartTime.UnixNano()), EndTimeUnixNano: uint64(j.EndTime.UnixNano()), Status: status, Attributes: Attrs(map[string]string{"uipath.folder.id": folder, "uipath.job.key": j.Key, "uipath.job.state": j.State, "uipath.process.name": j.ReleaseName, "uipath.trace.origin": "orchestrator_api"})}
+	r := &traces.Span{TraceId: t, SpanId: s, Name: "uipath.job " + j.ReleaseName, Kind: traces.Span_SPAN_KIND_INTERNAL, StartTimeUnixNano: uint64(j.StartTime.UnixNano()), EndTimeUnixNano: uint64(j.EndTime.UnixNano()), Status: status, Attributes: Attrs(map[string]string{"uipath.folder.id": folder, "uipath.job.key": j.Key, "uipath.job.state": j.State, "uipath.process.name": j.ReleaseName, "uipath.trace.origin": "orchestrator_api"})}
+	r.Attributes = append(r.Attributes, Assignment(c, j)...)
+	return r
 }
 func JobLog(c config.Config, folder string, j uipath.Job, now time.Time) *logs.LogRecord {
 	ts := now
@@ -123,6 +125,7 @@ func JobLog(c config.Config, folder string, j uipath.Job, now time.Time) *logs.L
 	}
 	attrs := map[string]string{"uipath.folder.id": folder, "uipath.job.key": j.Key, "uipath.job.state": j.State, "uipath.process.name": j.ReleaseName, "uipath.event.kind": "job.completed", "uipath.event.id": "job/" + folder + "/" + j.Key}
 	r := &logs.LogRecord{TimeUnixNano: uint64(ts.UnixNano()), ObservedTimeUnixNano: uint64(now.UnixNano()), SeverityNumber: Severity(level), SeverityText: level, Body: Text("UiPath job completed: " + j.State), Attributes: Attrs(attrs)}
+	r.Attributes = append(r.Attributes, Assignment(c, j)...)
 	if j.StartTime != nil && j.EndTime != nil && !j.EndTime.Before(*j.StartTime) {
 		r.Attributes = append(r.Attributes, &common.KeyValue{Key: "uipath.job.duration", Value: &common.AnyValue{Value: &common.AnyValue_DoubleValue{DoubleValue: j.EndTime.Sub(*j.StartTime).Seconds()}}})
 	}

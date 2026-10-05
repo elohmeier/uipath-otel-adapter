@@ -86,6 +86,30 @@ func (a *Adapter) Poll(ctx context.Context) error {
 		self = append(self, availability...)
 	}
 	failures := 0
+	runtimeMetrics, runtimeHealth, runtimeErr := a.runtimes(ctx, now)
+	domain = append(domain, runtimeMetrics...)
+	self = append(self, runtimeHealth...)
+	if runtimeErr != nil {
+		failures++
+		slog.Warn("dataset collection failed", "dataset", "runtimes", "error", runtimeErr)
+	}
+	active := map[string]activeJob{}
+	snapshotComplete := err == nil
+	// Previously visible or configured folders disappearing is incomplete coverage.
+	known := map[string]string{}
+	if e := a.Store.Load("inventory/folders", &known); e != nil {
+		return e
+	}
+	visible := map[string]bool{}
+	for _, f := range folders {
+		visible[strconv.FormatInt(f.ID, 10)] = true
+	}
+	for id := range known {
+		n, _ := strconv.ParseInt(id, 10, 64)
+		if (len(a.Config.FolderIDs) == 0 || a.Config.FolderIDs[n]) && !visible[id] {
+			snapshotComplete = false
+		}
+	}
 	for _, folder := range folders {
 		if len(a.Config.FolderIDs) > 0 && !a.Config.FolderIDs[folder.ID] {
 			continue
@@ -123,12 +147,20 @@ func (a *Adapter) Poll(ctx context.Context) error {
 		if e != nil {
 			failures++
 			slog.Warn("dataset collection failed", "dataset", "jobs", "error", e)
+			snapshotComplete = false
 			d = folderState()
 			if x := a.Store.Load(key, &d); x != nil {
 				return x
 			}
 			if d.Started.IsZero() {
 				d.Started = now
+			}
+		}
+		if e == nil && a.Config.JobSnapshots {
+			for _, j := range jobs {
+				if !terminal(j) && len(active) <= maxSnapshotJobs {
+					active[id+"/"+j.Key] = a.activeJob(folder, j, now)
+				}
 			}
 		}
 		self = append(self, a.health("jobs", attrs, d.JobsSuccess, e, now)...)
@@ -184,6 +216,12 @@ func (a *Adapter) Poll(ctx context.Context) error {
 		}
 		domain = append(domain, a.folderMetrics(id, d, now)...)
 	}
+	if a.Config.JobSnapshots {
+		if e := a.snapshot(active, snapshotComplete, now); e != nil {
+			failures++
+			slog.Warn("dataset collection failed", "dataset", "job_snapshots", "error", e)
+		}
+	}
 	pending, quarantine := a.Store.Counts()
 	self = append(self, telemetry.Gauge("uipath.collector.outbox.pending", "{batch}", float64(pending), nil, now), telemetry.Gauge("uipath.collector.outbox.quarantined", "{batch}", float64(quarantine), nil, now))
 	payload, e := telemetry.MetricPayload(a.Config, telemetry.Merge(domain), telemetry.Merge(self))
@@ -226,9 +264,16 @@ func (a *Adapter) health(dataset string, attrs map[string]string, last time.Time
 func (a *Adapter) jobs(key, id string, d *FolderState, jobs []uipath.Job, now, since time.Time) error {
 	var ls []*logs.LogRecord
 	var spans []*traces.Span
+	seen := map[string]bool{}
 	for _, j := range jobs {
-		if j.Key == "" || j.CreationTime.IsZero() {
-			return errors.New("job lacks stable key or creation timestamp")
+		if j.Key == "" || seen[j.Key] || j.CreationTime.IsZero() || j.CreationTime.After(now.Add(time.Minute)) || (j.StartTime != nil && (j.StartTime.IsZero() || j.StartTime.After(now.Add(time.Minute)))) {
+			return errors.New("job has missing, duplicate or invalid identity/timestamp")
+		}
+		seen[j.Key] = true
+		switch j.State {
+		case "Pending", "Running", "Stopping", "Terminating", "Suspended", "Resumed", "Successful", "Faulted", "Stopped":
+		default:
+			return errors.New("unknown job state; coverage incomplete")
 		}
 		if !terminal(j) {
 			continue

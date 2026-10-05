@@ -186,3 +186,64 @@ inventory reset. Discovery failure does not replace the remembered inventory.
 
 References: [queue fields and linked-folder behavior](https://docs.uipath.com/orchestrator/standalone/2025.10/api-guide/queue-items-requests),
 [queue item states](https://docs.uipath.com/orchestrator/standalone/2025.10/user-guide/queue-item-statuses).
+
+## Host occupancy and active-job snapshots
+
+`COLLECT_RUNTIMES` polls the tenant-level
+`/odata/Sessions/UiPath.Server.Configuration.OData.GetMachineSessionRuntimes`
+once per cycle, with bounded pagination and `OR.Robots.Read`. Capacity is never
+summed over folder views. Dimensions are source identity, `uipath.session.id`,
+`uipath.machine.id`, `uipath.host.name` and `uipath.runtime.type`. Machine ID is a
+UiPath template/object identity, not a physical host ID. `uipath.host.name`
+describes the remote execution target; the logical Orchestrator resource does
+not acquire `host.*` attributes. These are custom attributes, not new claims of
+stable OTel semantic conventions.
+
+| Metric | Unit | Meaning |
+| --- | --- | --- |
+| `uipath.runtime.status` | none | 0 unknown/stale, 1 free, 2 partly occupied, 3 occupied, 4 maintenance, 5 disconnected, 6 unresponsive, 7 no capacity |
+| `uipath.runtime.capacity`, `uipath.runtime.used` | `{slot}` | Assigned and consumed runtime slots; gauges |
+| `uipath.runtime.last_heartbeat`, `uipath.runtime.observed_time` | `s` | Source heartbeat and successful observation Unix timestamps |
+| `uipath.runtime.observed` | `{runtime}` | Rows in the successful tenant inventory, including zero-capacity types |
+| `uipath.collector.runtimes.status` | none | 0 disabled, 1 successful, 2 failed, 3 forbidden |
+| `uipath.collector.runtimes.last_success_time` | `s` | Last successful tenant observation, persisted across restart |
+| `uipath.collector.freshness` | `s` | Configured freshness budget |
+
+Maintenance, disconnected and unresponsive states take priority over heartbeat
+age and occupancy. Missing/invalid counts or identities, duplicates, unknown API
+enums, invalid heartbeat timestamps and capped reads invalidate the inventory.
+No old capacity is re-exported on failure. A successful read with an old heartbeat
+cannot label the host free. Dashboard rows must match the latest successful
+observation and require current collection success/freshness, so disappeared
+hosts do not survive through Prometheus lookback as available capacity.
+
+Jobs request `HostMachineName`, `JobPriority`, `RuntimeType`, `SourceType` and a
+narrow Robot expansion. Completion logs and spans receive the assignment fields
+when present. `Robot.Username` is requested and emitted only with
+`INCLUDE_ROBOT_USERNAMES`; accounts and job keys never become metric dimensions.
+An absent host is unassigned/unknown, not an idle host. Source type is an API
+classification, not evidence of who initiated the job.
+
+`COLLECT_JOB_SNAPSHOTS` produces one OTLP log per poll for all allowed folders:
+`uipath.event.kind=jobs.snapshot`, `uipath.folder.id=_all`, observed timestamp,
+`uipath.snapshot.status`, integer `uipath.snapshot.jobs`, and RFC3339
+`uipath.snapshot.valid_until` (observation plus `METRIC_FRESHNESS`). The body is a
+JSON object keyed by `folder-id/job-key`; each value contains process, named
+folder, host, robot, optional account, state, priority, runtime and timestamps.
+Elapsed/waiting seconds are sampled wall time, not consumed runtime.
+
+An empty complete body `{}` clears previous assignments. A discovery or job-read
+failure, missing previously visible/configured folder, invalid job record, or
+cap produces an incomplete/capped snapshot with `{}`; count zero then does not
+establish emptiness. Limits are 1,000 active jobs and 1 MiB body. Consumers select
+the newest source observation before testing status; do not query only complete
+records. The sample board queries unexpired records and requires complete status
+in its transformations. Avoid decreasing the freshness budget while older
+snapshots remain valid, since it can change expiration order.
+
+Snapshots use the existing durable OTLP log outbox, independently of robot-log
+collection. Their event IDs contain observation time; opt-in `log.record.uid`
+remains unchanged on persisted replay. Sequential API reads cannot guarantee a
+transactionally consistent fleet view, and runtime capacity may include work in
+folders the client cannot read. The snapshot scope is only the allowed/visible
+folders. Schedules and queue-to-job attribution require separate source contracts.

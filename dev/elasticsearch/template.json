@@ -11,6 +11,7 @@
       "properties": {
         "@timestamp": {"type": "date_nanos"},
         "message": {"type": "match_only_text"},
+        "uipath": {"properties": {"snapshot": {"properties": {"valid_until": {"type": "date_nanos"}}}}},
         "trace": {"properties": {"id": {"type": "keyword"}}},
         "span": {"properties": {"id": {"type": "keyword"}}}
       }

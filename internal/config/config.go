@@ -22,6 +22,7 @@ type Config struct {
 	PollInterval, Lookback, LogLookback, Overlap, Timeout, Freshness, QueueLookback time.Duration
 	PageSize, MaxRecords, MaxPending                                                int
 	Insecure, IncludeMessages, LogRecordUID, Logs, Queues, Once                     bool
+	Runtimes, JobSnapshots, IncludeRobotUsernames                                   bool
 }
 
 func Load() (Config, error) {
@@ -81,6 +82,8 @@ func Load() (Config, error) {
 	}{
 		{"UIPATH_TLS_INSECURE", &c.Insecure, "false"}, {"INCLUDE_LOG_MESSAGES", &c.IncludeMessages, "false"},
 		{"INCLUDE_LOG_RECORD_UID", &c.LogRecordUID, "false"},
+		{"COLLECT_RUNTIMES", &c.Runtimes, "false"}, {"COLLECT_JOB_SNAPSHOTS", &c.JobSnapshots, "false"},
+		{"INCLUDE_ROBOT_USERNAMES", &c.IncludeRobotUsernames, "false"},
 		{"COLLECT_LOGS", &c.Logs, "true"}, {"COLLECT_QUEUES", &c.Queues, "false"},
 	} {
 		b, e := strconv.ParseBool(env(v.name, v.fallback))
@@ -91,6 +94,9 @@ func Load() (Config, error) {
 	}
 	if c.Queues && os.Getenv("UIPATH_SCOPES") == "" {
 		c.Scopes += " OR.Queues.Read"
+	}
+	if c.Runtimes && os.Getenv("UIPATH_SCOPES") == "" {
+		c.Scopes += " OR.Robots.Read"
 	}
 	if c.PageSize > 1000 || c.MaxRecords > 10000 {
 		return c, fmt.Errorf("PAGE_SIZE must be <=1000 and MAX_RECORDS <=10000")

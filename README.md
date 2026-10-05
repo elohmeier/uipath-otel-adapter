@@ -140,7 +140,7 @@ nonzero on an error; pending batches survive for the next run.
 | `LOG_INITIAL_LOOKBACK` | `1h`; bootstrap robot-log window |
 | `LOG_OVERLAP` | `5m`; reconciliation window for late source records |
 | `HTTP_TIMEOUT` | `30s` |
-| `METRIC_FRESHNESS` | `3m`; suppress stale active-job/queue snapshots |
+| `METRIC_FRESHNESS` | `3m`; freshness budget for jobs, queues, host runtimes and current-job logs |
 | `PAGE_SIZE` | `100`; maximum 1,000 |
 | `MAX_RECORDS` | `5000` per dataset/folder/cycle; maximum 10,000 |
 | `MAX_PENDING_BATCHES` | `2000`; includes quarantined log/trace batches |
@@ -148,6 +148,9 @@ nonzero on an error; pending batches survive for the next run.
 | `INCLUDE_LOG_MESSAGES` | `false`; otherwise fetch and export the original message body |
 | `INCLUDE_LOG_RECORD_UID` | `false`; opt in to SemConv v1.43.0's Development `log.record.uid` for stable log identity |
 | `COLLECT_QUEUES` | `false`; collects queue inventory, active items and recent transaction outcomes |
+| `COLLECT_RUNTIMES` | `false`; tenant-level host/runtime capacity, requires `OR.Robots.Read` |
+| `COLLECT_JOB_SNAPSHOTS` | `false`; atomic current-job views as OTLP logs, independent of `COLLECT_LOGS` |
+| `INCLUDE_ROBOT_USERNAMES` | `false`; request/export execution accounts in logs and spans only |
 | `QUEUE_HISTORY_LOOKBACK` | `24h`; rolling EndProcessing window, separate from dashboard time range |
 | `STATE_PATH` | `.local/state.db`; container default `/data/state.db` |
 | `LISTEN_ADDRESS` | `127.0.0.1:8088`; container default `0.0.0.0:8088` |
@@ -194,7 +197,7 @@ also interrupts the adapter's exported self-metrics.
 - Queue snapshots include inventory, explicit zeros after complete reads, eligible/deferred
   backlog, overdue work and rolling transaction outcomes. Shared folder views must
   be deduplicated by tenant and queue ID; the dashboard does this before totals.
-  Sessions, licensing, audit logs,
+  Host/runtime sessions are an optional tenant-level read. Licensing, schedules, audit logs,
   workflow instrumentation, HA and deletion/correction reconciliation are future
   work. Missing queue series are not proof of an empty queue.
 
@@ -212,6 +215,8 @@ go vet ./...
 python3 -m unittest discover -s scripts -p "test_*.py" -v
 python3 scripts/generate-dashboard.py
 docker compose config --quiet
+# With the synthetic demo running:
+python3 scripts/check-scheduling.py
 ```
 
 The tests use synthetic records and local HTTP servers. They cover token refresh,
@@ -254,3 +259,29 @@ docker rm -f uipath-demo-tenant-b
 This verifies two distinct source instances, unpromoted metric labels and all
 metric dashboard queries, including metadata joins. For an isolated Compose
 project with different port mappings, pass `--metrics-url` to the check.
+
+## Host occupancy dashboard
+
+The demo enables runtime collection, current-job snapshots and synthetic account
+names. Open **UiPath host occupancy** from the overview dashboard. It shows host
+capacity/status, running and pending jobs with folder/host/account assignment,
+and recent completions with trace links. Select one source so separate collectors
+or environments cannot be mixed. Runtime capacity always covers the source;
+the folder selector filters job tables only. Missing assignments stay unassigned.
+
+Production deployments opt in with `COLLECT_RUNTIMES=true` and
+`COLLECT_JOB_SNAPSHOTS=true`. Add `OR.Robots.Read` to an explicit `UIPATH_SCOPES`
+list; the default list adds it automatically when runtime collection is enabled.
+`INCLUDE_ROBOT_USERNAMES=true` is a separate privacy choice. Job snapshots require
+log delivery and the receiver's searchable source/event fields. The sample
+Elasticsearch template also indexes `uipath.snapshot.valid_until` as a date.
+Existing indices need the corresponding mapping or rollover before this query
+can work; receiver-specific OTLP field paths may require dashboard remapping.
+
+The newest unexpired snapshot is usable only when status is `complete`. A zero
+count with that status is known-empty; missing, expired, incomplete or capped
+snapshots mean unknown. Runtime rows require a fresh successful collection and
+current inventory membership. API reads across folders are sequential, so the
+board is an observed operations view, not a transactional scheduler. No next-free
+countdown or per-job queue outcomes are inferred from past executions. See the
+[telemetry contract](docs/telemetry.md#host-occupancy-and-active-job-snapshots).

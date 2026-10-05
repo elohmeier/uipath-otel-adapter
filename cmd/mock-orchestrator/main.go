@@ -35,6 +35,25 @@ func main() {
 		}
 		start := now.Add(-45 * time.Second)
 		rows = append(rows, uipath.Job{ID: 1, Key: key(1), ReleaseName: "Invoice processing", State: "Running", CreationTime: start.Add(-10 * time.Second), StartTime: &start}, uipath.Job{ID: 2, Key: key(2), ReleaseName: "Document routing", State: "Pending", CreationTime: now.Add(-20 * time.Second)})
+		for i := range rows {
+			rows[i].RuntimeType = "Unattended"
+			rows[i].JobPriority = "Normal"
+			if rows[i].State != "Pending" {
+				rows[i].HostMachineName = "robot-a.example.com"
+				rows[i].Robot = &uipath.JobRobot{ID: 42, Name: "Invoice robot", Username: "example-robot"}
+			}
+		}
+		respond(w, map[string]any{"value": page(rows, r)})
+	})
+	mux.HandleFunc("GET /odata/Sessions/UiPath.Server.Configuration.OData.GetMachineSessionRuntimes", func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now().UTC()
+		one, zero, two := int64(1), int64(0), int64(2)
+		rows := []uipath.MachineRuntime{
+			{SessionID: 1, MachineID: 11, HostMachineName: "robot-a.example.com", RuntimeType: "Unattended", Status: "Busy", MaintenanceMode: "Default", Runtimes: &one, UsedRuntimes: &one, ReportingTime: now},
+			{SessionID: 2, MachineID: 12, HostMachineName: "robot-b.example.com", RuntimeType: "Unattended", Status: "Available", MaintenanceMode: "Default", Runtimes: &two, UsedRuntimes: &zero, ReportingTime: now},
+			{SessionID: 3, MachineID: 13, HostMachineName: "robot-c.example.com", RuntimeType: "Unattended", Status: "Disconnected", MaintenanceMode: "Default", Runtimes: &zero, UsedRuntimes: &zero, ReportingTime: now.Add(-time.Hour)},
+			{SessionID: 4, MachineID: 14, HostMachineName: "robot-d.example.com", RuntimeType: "Unattended", Status: "Available", MaintenanceMode: "Enabled", Runtimes: &one, UsedRuntimes: &zero, ReportingTime: now},
+		}
 		respond(w, map[string]any{"value": page(rows, r)})
 	})
 	mux.HandleFunc("GET /odata/RobotLogs", func(w http.ResponseWriter, r *http.Request) {

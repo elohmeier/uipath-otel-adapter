@@ -1727,5 +1727,11 @@
         }
       }
     }
+  ],
+  "links": [
+    {
+      "title": "Host occupancy and jobs",
+      "url": "/d/uipath-scheduling"
+    }
   ]
 }

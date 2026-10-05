@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +13,30 @@ func base(t *testing.T) {
 	t.Setenv("UIPATH_CLIENT_ID", "test-client")
 	t.Setenv("UIPATH_CLIENT_SECRET", "test-secret")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+}
+
+func TestSchedulingOptions(t *testing.T) {
+	base(t)
+	for _, flag := range []string{"COLLECT_RUNTIMES", "COLLECT_JOB_SNAPSHOTS", "INCLUDE_ROBOT_USERNAMES"} {
+		t.Setenv(flag, "false")
+	}
+	t.Setenv("UIPATH_SCOPES", "")
+	c, err := Load()
+	if err != nil || c.Runtimes || c.JobSnapshots || c.IncludeRobotUsernames || strings.Contains(c.Scopes, "OR.Robots.Read") {
+		t.Fatal("scheduling options must be opt-in", err)
+	}
+	t.Setenv("COLLECT_RUNTIMES", "true")
+	t.Setenv("COLLECT_JOB_SNAPSHOTS", "true")
+	t.Setenv("INCLUDE_ROBOT_USERNAMES", "true")
+	c, err = Load()
+	if err != nil || !c.Runtimes || !c.JobSnapshots || !c.IncludeRobotUsernames || !strings.Contains(c.Scopes, "OR.Robots.Read") {
+		t.Fatal("scheduling options/scopes missing", err)
+	}
+	t.Setenv("UIPATH_SCOPES", "OR.Jobs.Read")
+	c, err = Load()
+	if err != nil || c.Scopes != "OR.Jobs.Read" {
+		t.Fatal("explicit scopes must remain operator-owned", err)
+	}
 }
 func TestPrivateSecretFileTakesPrecedence(t *testing.T) {
 	base(t)

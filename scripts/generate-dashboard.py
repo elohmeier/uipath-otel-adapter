@@ -155,4 +155,7 @@ for variable in variables:
     if variable["type"] == "query" and variable["name"] != "installation":
         variable["query"]["query"] = with_source_metadata(variable["query"]["query"])
 dashboard={"uid":"uipath-overview","title":"UiPath monitoring","tags":["uipath","opentelemetry"],"schemaVersion":39,"version":2,"editable":False,"timezone":"browser","time":{"from":"now-24h","to":"now"},"refresh":"30s","templating":{"list":variables},"panels":panels}
+from scheduling_dashboard import scheduling_dashboard
+dashboard["links"] = [{"title":"Host occupancy and jobs","url":"/d/uipath-scheduling"}]
 (root/"dev/grafana/dashboards/uipath.json").write_text(json.dumps(dashboard,indent=2)+"\n")
+(root/"dev/grafana/dashboards/uipath-scheduling.json").write_text(json.dumps(scheduling_dashboard(),indent=2)+"\n")

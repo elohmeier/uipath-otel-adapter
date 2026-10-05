@@ -29,13 +29,27 @@ type Folder struct {
 	Name string `json:"DisplayName"`
 }
 type Job struct {
-	ID           int64 `json:"Id"`
-	Key          string
-	State        string
-	ReleaseName  string
-	CreationTime time.Time
-	StartTime    *time.Time
-	EndTime      *time.Time
+	ID                                                    int64 `json:"Id"`
+	Key                                                   string
+	State                                                 string
+	ReleaseName                                           string
+	CreationTime                                          time.Time
+	StartTime                                             *time.Time
+	EndTime                                               *time.Time
+	HostMachineName, JobPriority, RuntimeType, SourceType string
+	Robot                                                 *JobRobot
+}
+type JobRobot struct {
+	ID             int64 `json:"Id"`
+	Name, Username string
+}
+type MachineRuntime struct {
+	SessionID                                                          int64 `json:"SessionId"`
+	MachineID                                                          int64 `json:"MachineId"`
+	MachineName, HostMachineName, RuntimeType, Status, MaintenanceMode string
+	IsUnresponsive                                                     bool
+	Runtimes, UsedRuntimes                                             *int64
+	ReportingTime                                                      time.Time
 }
 type RobotLog struct {
 	ID                          int64 `json:"Id"`
@@ -230,8 +244,20 @@ func (c *Client) Folders(ctx context.Context) ([]Folder, error) {
 }
 func (c *Client) Jobs(ctx context.Context, id int64, since time.Time) ([]Job, error) {
 	filter := "(CreationTime ge " + since.UTC().Format(time.RFC3339Nano) + " or EndTime ge " + since.UTC().Format(time.RFC3339Nano) + " or State eq 'Pending' or State eq 'Running' or State eq 'Stopping' or State eq 'Terminating' or State eq 'Suspended' or State eq 'Resumed')"
-	r, e := c.List(ctx, "/odata/Jobs", id, url.Values{"$select": {"Id,Key,State,ReleaseName,CreationTime,StartTime,EndTime"}, "$filter": {filter}, "$orderby": {"Id asc"}})
+	fields := "Id,Key,State,ReleaseName,CreationTime,StartTime,EndTime,HostMachineName,JobPriority,RuntimeType,SourceType"
+	robot := "Id,Name"
+	if c.cfg.IncludeRobotUsernames {
+		robot += ",Username"
+	}
+	r, e := c.List(ctx, "/odata/Jobs", id, url.Values{"$select": {fields}, "$expand": {"Robot($select=" + robot + ")"}, "$filter": {filter}, "$orderby": {"Id asc"}})
 	return decode[Job](r, e)
+}
+func (c *Client) MachineRuntimes(ctx context.Context) ([]MachineRuntime, error) {
+	r, e := c.List(ctx, "/odata/Sessions/UiPath.Server.Configuration.OData.GetMachineSessionRuntimes", 0, url.Values{
+		"$select":  {"SessionId,MachineId,MachineName,HostMachineName,RuntimeType,Status,MaintenanceMode,IsUnresponsive,Runtimes,UsedRuntimes,ReportingTime"},
+		"$orderby": {"SessionId asc,RuntimeType asc"},
+	})
+	return decode[MachineRuntime](r, e)
 }
 func (c *Client) Logs(ctx context.Context, id int64, since time.Time) ([]RobotLog, error) {
 	fields := "Id,JobKey,TimeStamp,Level,ProcessName"
