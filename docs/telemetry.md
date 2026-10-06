@@ -51,8 +51,8 @@ required. The number of process groups grows with source inventory; operate with
 an explicit folder allowlist and monitor resulting cardinality. The local
 Collector preserves OTLP to Thanos without resource promotion. Standard mapping
 produces `job` from `service.namespace/service.name` and `instance` from
-`service.instance.id`. Source metadata remains on `target_info`; the dashboard
-joins it on `(job, instance)` before domain-specific filtering and aggregation.
+`service.instance.id`. Source metadata remains on `target_info`; consumers
+join it on `(job, instance)` before domain-specific filtering and aggregation.
 Counter rates are calculated before joining metadata.
 
 `service.namespace=uipath` groups the two logical service roles. The instance ID
@@ -67,9 +67,9 @@ Installation identifiers must be unique within the monitoring estate. Concurrent
 collectors for the same source remain unsupported.
 
 Changing to this contract creates new Prometheus series. Old promoted series and
-queued pre-upgrade OTLP batches keep their previous identity; the new dashboard
-does not fall back to ambiguous old series. Drain old outboxes and coordinate the
-adapter/dashboard rollout; short rate windows need fresh samples. Stored history
+queued pre-upgrade OTLP batches keep their previous identity; consumer queries
+should not fall back to ambiguous old series. Drain old outboxes and coordinate the
+adapter and dashboard rollout; short rate windows need fresh samples. Stored history
 is not rewritten. Generic platform promotion of environment metadata is optional;
 the sample stack needs no promotion flags at all.
 
@@ -165,15 +165,15 @@ business transactions. Historical updates and retention can change counts.
 
 Prometheus translation replaces dots with underscores and appends `_seconds`
 for seconds. Queue names are joined from inventory rather than copied to every
-metric. Folder views preserve authorization context. The sample dashboard uses
+metric. Folder views preserve authorization context. Consumers should use
 max per installation/tenant/queue ID to avoid adding shared queue observations
 across linked folders. These are sequential snapshots, not an atomic fleet view;
 max is an observation policy, not proof of simultaneous global state.
 
 Inventory and item reads must both succeed and validate before the queue snapshot
 is saved. A cap, unknown queue/state, invalid identity/timing, or failed read marks
-coverage incomplete and suppresses that cycle's queue metrics. Dashboard queries
-also gate on current collection success, folder availability and freshness so
+coverage incomplete and suppresses that cycle's queue metrics. Consumer queries
+should also gate on current collection success, folder availability and freshness so
 previously stored values cannot masquerade as fresh results.
 
 `uipath.collector.dataset.status` is a unitless gauge: 0 disabled, 1 successful,
@@ -192,28 +192,44 @@ References: [queue fields and linked-folder behavior](https://docs.uipath.com/or
 `COLLECT_RUNTIMES` polls the tenant-level
 `/odata/Sessions/UiPath.Server.Configuration.OData.GetMachineSessionRuntimes`
 once per cycle, with bounded pagination and `OR.Robots.Read`. Capacity is never
-summed over folder views. Dimensions are source identity, `uipath.session.id`,
-`uipath.machine.id`, `uipath.host.name` and `uipath.runtime.type`. Machine ID is a
-UiPath template/object identity, not a physical host ID. `uipath.host.name`
-describes the remote execution target; the logical Orchestrator resource does
-not acquire `host.*` attributes. These are custom attributes, not new claims of
-stable OTel semantic conventions.
+summed over folder views. The API returns one row per machine session and
+runtime type, including every type without slots, and repeats connection state
+and heartbeat on each row. The adapter therefore emits two levels:
+
+- Session series carry source identity, `uipath.session.id`, `uipath.machine.id`
+  and `uipath.host.name`, once per session.
+- Runtime series add `uipath.runtime.type` and are emitted only for types with at
+  least one slot. In a fresh, successful inventory, a missing type means zero
+  slots, not an unknown state.
+
+Machine ID is a UiPath template/object identity, not a physical host ID.
+`uipath.host.name` describes the remote execution target; the logical
+Orchestrator resource does not acquire `host.*` attributes. These are custom
+attributes, not new claims of stable OTel semantic conventions.
 
 | Metric | Unit | Meaning |
 | --- | --- | --- |
-| `uipath.runtime.status` | none | 0 unknown/stale, 1 free, 2 partly occupied, 3 occupied, 4 maintenance, 5 disconnected, 6 unresponsive, 7 no capacity |
-| `uipath.runtime.capacity`, `uipath.runtime.used` | `{slot}` | Assigned and consumed runtime slots; gauges |
-| `uipath.runtime.last_heartbeat`, `uipath.runtime.observed_time` | `s` | Source heartbeat and successful observation Unix timestamps |
+| `uipath.session.status` | none | 0 unknown/stale, 1 free, 2 partly occupied, 3 occupied, 4 maintenance, 5 disconnected, 6 unresponsive, 7 no slots; occupancy over all runtime types |
+| `uipath.session.last_heartbeat`, `uipath.session.observed_time` | `s` | Oldest source heartbeat of the session and successful observation Unix timestamps |
+| `uipath.runtime.status` | none | Same codes; occupancy of this runtime type, or the session's state when it is 0 or 4–6 |
+| `uipath.runtime.capacity`, `uipath.runtime.used` | `{slot}` | Assigned and consumed runtime slots of types with capacity; gauges |
+| `uipath.runtime.observed_time` | `s` | Successful observation Unix timestamp of the runtime row |
 | `uipath.runtime.observed` | `{runtime}` | Rows in the successful tenant inventory, including zero-capacity types |
+| `uipath.session.observed` | `{session}` | Machine sessions in the successful tenant inventory |
 | `uipath.collector.runtimes.status` | none | 0 disabled, 1 successful, 2 failed, 3 forbidden |
 | `uipath.collector.runtimes.last_success_time` | `s` | Last successful tenant observation, persisted across restart |
 | `uipath.collector.freshness` | `s` | Configured freshness budget |
 
-Maintenance, disconnected and unresponsive states take priority over heartbeat
-age and occupancy. Missing/invalid counts or identities, duplicates, unknown API
-enums, invalid heartbeat timestamps and capped reads invalidate the inventory.
+Session state merges a session's rows conservatively: maintenance, disconnected,
+unresponsive or unknown on any row applies to the session, and the oldest
+heartbeat wins. Maintenance, disconnected and unresponsive states take priority
+over heartbeat age and occupancy. A Busy session without used slots is unknown;
+an idle runtime type on a Busy session with used slots elsewhere is free.
+Missing/invalid counts or identities, duplicates, rows of one session with
+different machine IDs or host names, unknown API enums, invalid heartbeat
+timestamps and capped reads invalidate the inventory.
 No old capacity is re-exported on failure. A successful read with an old heartbeat
-cannot label the host free. Dashboard rows must match the latest successful
+cannot label the host free. Consumer queries must match the latest successful
 observation and require current collection success/freshness, so disappeared
 hosts do not survive through Prometheus lookback as available capacity.
 
@@ -237,8 +253,8 @@ failure, missing previously visible/configured folder, invalid job record, or
 cap produces an incomplete/capped snapshot with `{}`; count zero then does not
 establish emptiness. Limits are 1,000 active jobs and 1 MiB body. Consumers select
 the newest source observation before testing status; do not query only complete
-records. The sample board queries unexpired records and requires complete status
-in its transformations. Avoid decreasing the freshness budget while older
+records. Query unexpired records and require complete status before
+interpreting the body. Avoid decreasing the freshness budget while older
 snapshots remain valid, since it can change expiration order.
 
 Snapshots use the existing durable OTLP log outbox, independently of robot-log

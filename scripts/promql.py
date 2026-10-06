@@ -1,4 +1,4 @@
-"""Source metadata joins for the dashboard's generated PromQL subset.
+"""Source metadata joins for the check scripts' PromQL subset.
 
 Only selectors and rate(selector[window]) are rewritten. Applying rate before
 joining preserves counter reset semantics and avoids range-vector subqueries.

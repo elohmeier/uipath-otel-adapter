@@ -84,7 +84,6 @@ services:
       - "127.0.0.1:13000:3000"
     volumes:
       - ./dev/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./dev/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   mock:
     profiles: [demo]

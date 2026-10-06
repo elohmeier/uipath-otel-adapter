@@ -1,9 +1,0 @@
-apiVersion: 1
-providers:
-  - name: UiPath
-    folder: UiPath
-    type: file
-    disableDeletion: true
-    editable: false
-    options:
-      path: /var/lib/grafana/dashboards

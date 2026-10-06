@@ -43,17 +43,32 @@ func runtimeStatus(r uipath.MachineRuntime, now time.Time, freshness time.Durati
 	if r.Status == "Busy" && *r.UsedRuntimes == 0 {
 		return 0
 	}
-	if *r.UsedRuntimes == 0 {
+	return occupancy(*r.Runtimes, *r.UsedRuntimes)
+}
+
+func occupancy(capacity, used int64) float64 {
+	if used == 0 {
 		return 1
 	}
-	if *r.UsedRuntimes < *r.Runtimes {
+	if used < capacity {
 		return 2
 	}
 	return 3
 }
 
+// Degraded and unknown states are session properties: an idle runtime type on a
+// Busy session is free, but nothing on a disconnected session is.
+func runtimeTypeStatus(r uipath.MachineRuntime, session float64) float64 {
+	switch session {
+	case 1, 2, 3, 7:
+		return occupancy(*r.Runtimes, *r.UsedRuntimes)
+	}
+	return session
+}
+
 func validateRuntimes(rows []uipath.MachineRuntime, now time.Time) error {
 	seen := map[string]bool{}
+	identity := map[int64]uipath.MachineRuntime{}
 	for _, r := range rows {
 		key := fmt.Sprintf("%d/%s", r.SessionID, r.RuntimeType)
 		if r.SessionID <= 0 || r.MachineID <= 0 || r.HostMachineName == "" || r.RuntimeType == "" || seen[key] || r.Runtimes == nil || r.UsedRuntimes == nil || *r.Runtimes < 0 || *r.UsedRuntimes < 0 || *r.UsedRuntimes > *r.Runtimes || r.ReportingTime.IsZero() || r.ReportingTime.After(now.Add(time.Minute)) {
@@ -70,9 +85,47 @@ func validateRuntimes(rows []uipath.MachineRuntime, now time.Time) error {
 		default:
 			return errors.New("unknown runtime maintenance mode")
 		}
+		if first, ok := identity[r.SessionID]; ok && (first.MachineID != r.MachineID || first.HostMachineName != r.HostMachineName) {
+			return errors.New("conflicting machine session identity; coverage incomplete")
+		}
+		identity[r.SessionID] = r
 	}
 	return nil
 }
+
+// Connection state and heartbeat belong to the machine session, but the API
+// repeats them on every runtime-type row. Rows are merged conservatively: any
+// degraded row degrades the session and the oldest heartbeat wins.
+func sessions(rows []uipath.MachineRuntime) []uipath.MachineRuntime {
+	var out []uipath.MachineRuntime
+	index := map[int64]int{}
+	for _, r := range rows {
+		i, ok := index[r.SessionID]
+		if !ok {
+			index[r.SessionID] = len(out)
+			capacity, used := *r.Runtimes, *r.UsedRuntimes
+			r.RuntimeType, r.Runtimes, r.UsedRuntimes = "", &capacity, &used
+			out = append(out, r)
+			continue
+		}
+		s := &out[i]
+		*s.Runtimes += *r.Runtimes
+		*s.UsedRuntimes += *r.UsedRuntimes
+		s.IsUnresponsive = s.IsUnresponsive || r.IsUnresponsive
+		if r.MaintenanceMode == "Enabled" {
+			s.MaintenanceMode = "Enabled"
+		}
+		if statusRank[r.Status] > statusRank[s.Status] {
+			s.Status = r.Status
+		}
+		if r.ReportingTime.Before(s.ReportingTime) {
+			s.ReportingTime = r.ReportingTime
+		}
+	}
+	return out
+}
+
+var statusRank = map[string]int{"Available": 0, "Busy": 1, "Unknown": 2, "Disconnected": 3}
 
 func (a *Adapter) runtimes(ctx context.Context, now time.Time) (domain, self []*metrics.Metric, err error) {
 	status := 0.
@@ -103,22 +156,37 @@ func (a *Adapter) runtimes(ctx context.Context, now time.Time) (domain, self []*
 			}
 		} else {
 			last = now
+			observed := float64(now.UnixMilli()) / 1000
+			merged := sessions(rows)
+			states := map[int64]float64{}
+			for _, r := range merged {
+				states[r.SessionID] = runtimeStatus(r, now, a.Config.Freshness)
+				attrs := map[string]string{"uipath.session.id": strconv.FormatInt(r.SessionID, 10), "uipath.machine.id": strconv.FormatInt(r.MachineID, 10), "uipath.host.name": r.HostMachineName}
+				domain = append(domain,
+					telemetry.Gauge("uipath.session.status", "", states[r.SessionID], attrs, now),
+					telemetry.Gauge("uipath.session.last_heartbeat", "s", float64(r.ReportingTime.UnixMilli())/1000, attrs, now),
+					telemetry.Gauge("uipath.session.observed_time", "s", observed, attrs, now))
+			}
+			// Runtime types without slots carry no occupancy; their absence in a
+			// fresh inventory means zero capacity, not an unknown state.
 			for _, r := range rows {
+				if *r.Runtimes == 0 {
+					continue
+				}
 				attrs := map[string]string{"uipath.session.id": strconv.FormatInt(r.SessionID, 10), "uipath.machine.id": strconv.FormatInt(r.MachineID, 10), "uipath.host.name": r.HostMachineName, "uipath.runtime.type": r.RuntimeType}
 				for _, m := range []struct {
 					name, unit string
 					value      float64
 				}{
-					{"uipath.runtime.status", "", runtimeStatus(r, now, a.Config.Freshness)},
+					{"uipath.runtime.status", "", runtimeTypeStatus(r, states[r.SessionID])},
 					{"uipath.runtime.capacity", "{slot}", float64(*r.Runtimes)},
 					{"uipath.runtime.used", "{slot}", float64(*r.UsedRuntimes)},
-					{"uipath.runtime.last_heartbeat", "s", float64(r.ReportingTime.UnixMilli()) / 1000},
-					{"uipath.runtime.observed_time", "s", float64(now.UnixMilli()) / 1000},
+					{"uipath.runtime.observed_time", "s", observed},
 				} {
 					domain = append(domain, telemetry.Gauge(m.name, m.unit, m.value, attrs, now))
 				}
 			}
-			domain = append(domain, telemetry.Gauge("uipath.runtime.observed", "{runtime}", float64(len(rows)), nil, now))
+			domain = append(domain, telemetry.Gauge("uipath.runtime.observed", "{runtime}", float64(len(rows)), nil, now), telemetry.Gauge("uipath.session.observed", "{session}", float64(len(merged)), nil, now))
 		}
 	}
 	ts := 0.

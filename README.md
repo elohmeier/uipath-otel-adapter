@@ -5,7 +5,8 @@ traces and export all three signals over OTLP/HTTP protobuf.
 
 The adapter speaks only UiPath and OTLP. Backend routing belongs to the receiver.
 A local Docker Compose stack routes metrics to Thanos, logs to Elasticsearch,
-and traces to Tempo, with a provisioned Grafana dashboard.
+and traces to Tempo, with Grafana for exploring all three backends. Dashboards
+belong to the consuming deployment and are not part of this repository.
 
 ```mermaid
 flowchart LR
@@ -29,17 +30,17 @@ docker compose --profile demo up -d --build
 python3 scripts/smoke.py --installation demo --log-record-uid
 ```
 
-Open [UiPath monitoring](http://localhost:13000/d/uipath-overview/uipath-monitoring).
-Sign in at http://localhost:13000/login with `admin` / `admin` to edit the local
-dashboards. Anonymous access remains available with the Viewer role.
+Open [Grafana Explore](http://localhost:13000/explore) to query the local
+backends. Sign in at http://localhost:13000/login with `admin` / `admin` to
+build local dashboards. Anonymous access remains available with the Viewer role.
 
 The demo generates a completed job every 30 seconds, including synthetic failures,
 robot logs, active jobs and a queue item. Live counters intentionally exclude
-bootstrap history; allow a few minutes for rate and percentile panels.
+bootstrap history; allow a few minutes for rate and percentile queries.
 
 | Local service | Address |
 | --- | --- |
-| Grafana dashboard | http://localhost:13000/d/uipath-overview/uipath-monitoring |
+| Grafana Explore | http://localhost:13000/explore |
 | OTLP/HTTP receiver | http://localhost:14318 |
 | Thanos query API | http://localhost:19090 |
 | Elasticsearch API | http://localhost:19200 |
@@ -47,8 +48,7 @@ bootstrap history; allow a few minutes for rate and percentile panels.
 | Collector health | http://localhost:13133 |
 
 Published ports bind to loopback. This is a development stack without backend
-authentication. Runtime telemetry lives in Docker volumes, never in fixtures or
-dashboard JSON. The demo and live adapter use separate state volumes and source
+authentication. Runtime telemetry lives in Docker volumes, never in fixtures. The demo and live adapter use separate state volumes and source
 identities. The local pipeline omits Kafka/Logstash to keep the development loop
 small; the adapter can use any compatible OTLP receiver.
 
@@ -80,7 +80,8 @@ default scopes cover folder discovery, jobs and robot logs. Scope issuance does
 not imply folder authorization. Queue collection is optional and requires the
 appropriate queue permissions/scopes.
 
-For an SSH tunnel, keep the original HTTPS hostname in `UIPATH_URL` and set
+To connect to a different TCP destination than the hostname in `UIPATH_URL`, keep
+the original HTTPS hostname in `UIPATH_URL` and set
 `UIPATH_DIAL_ADDRESS=host.docker.internal:18443` for the container (or
 `127.0.0.1:18443` for a host process). The adapter changes only the TCP destination,
 preserving the HTTP Host and TLS SNI. The OAuth URL defaults to
@@ -127,7 +128,7 @@ nonzero on an error; pending batches survive for the next run.
 | `UIPATH_FOLDER_IDS` | Comma-separated allowlist; empty discovers all authorized folders |
 | `UIPATH_INSTALLATION`, `UIPATH_TENANT` | Stable source identifiers; both default to `default` |
 | `UIPATH_ENVIRONMENT` | `development`; describes the monitored system |
-| `UIPATH_DIAL_ADDRESS` | Optional TCP destination override for tunnels |
+| `UIPATH_DIAL_ADDRESS` | Optional TCP destination override |
 | `UIPATH_CA_FILE` | Optional additional trusted CA bundle |
 | `UIPATH_TLS_INSECURE` | `false`; explicit source-only development override |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:14318`; base URL, without a signal path |
@@ -151,7 +152,7 @@ nonzero on an error; pending batches survive for the next run.
 | `COLLECT_RUNTIMES` | `false`; tenant-level host/runtime capacity, requires `OR.Robots.Read` |
 | `COLLECT_JOB_SNAPSHOTS` | `false`; atomic current-job views as OTLP logs, independent of `COLLECT_LOGS` |
 | `INCLUDE_ROBOT_USERNAMES` | `false`; request/export execution accounts in logs and spans only |
-| `QUEUE_HISTORY_LOOKBACK` | `24h`; rolling EndProcessing window, separate from dashboard time range |
+| `QUEUE_HISTORY_LOOKBACK` | `24h`; rolling EndProcessing window, separate from any query time range |
 | `STATE_PATH` | `.local/state.db`; container default `/data/state.db` |
 | `LISTEN_ADDRESS` | `127.0.0.1:8088`; container default `0.0.0.0:8088` |
 
@@ -196,7 +197,7 @@ also interrupts the adapter's exported self-metrics.
   source retention or under arbitrary concurrent source mutation.
 - Queue snapshots include inventory, explicit zeros after complete reads, eligible/deferred
   backlog, overdue work and rolling transaction outcomes. Shared folder views must
-  be deduplicated by tenant and queue ID; the dashboard does this before totals.
+  be deduplicated by tenant and queue ID before totals.
   Host/runtime sessions are an optional tenant-level read. Licensing, schedules, audit logs,
   workflow instrumentation, HA and deletion/correction reconciliation are future
   work. Missing queue series are not proof of an empty queue.
@@ -213,7 +214,6 @@ data stream and enforce the intended mapping in the pipeline.
 go test -race ./...
 go vet ./...
 python3 -m unittest discover -s scripts -p "test_*.py" -v
-python3 scripts/generate-dashboard.py
 docker compose config --quiet
 # With the synthetic demo running:
 python3 scripts/check-scheduling.py
@@ -227,23 +227,19 @@ retries. `scripts/smoke.py` checks actual backend results and retrieves a trace
 referenced by an indexed log; it prints counts only.
 
 See [telemetry contract](docs/telemetry.md) for metric names and semantic versions.
-The dashboard provides named folder selection, process and log-level filters,
-collection coverage, and an execution history table (latest 100 lifecycle events).
-Queue panels have their own named selector and ignore the process filter. Their
-rolling outcome window defaults to 24h, independently of the dashboard time range.
-Current active-job counts remain folder-scoped; process filters apply to execution
-metrics, logs and traces. Older events retain their original fields.
+Current active-job counts are folder-scoped; process identity applies to
+execution metrics, logs and traces. Queue series are not process-scoped. The
+rolling queue outcome window defaults to 24h, independently of a query's time
+range. Older events retain their original fields.
 
 Metrics use standard OTLP service identity (`job`/`instance` after translation).
-The dashboard obtains installation and tenant metadata through `target_info`
-joins; no application-specific resource promotion is required in Thanos. Use a
+Consumers obtain installation and tenant metadata through `target_info` joins
+(see `scripts/promql.py`); no application-specific resource promotion is required
+in Thanos. Use a
 unique installation identifier for each monitored source. When upgrading from
-the earlier promoted-label contract, deploy the adapter and dashboard together:
-old series remain stored but are not selected by the new dashboard. See the
+the earlier promoted-label contract, deploy the adapter and consuming dashboards
+together: old series remain stored but are not selected by joined queries. See the
 [identity and migration contract](docs/telemetry.md).
-
-The dashboard JSON is generated from neutral queries; it contains no runtime
-inventory, endpoints or samples from a monitored installation.
 
 To exercise metric identity without promotion, run the synthetic demo and a
 second tenant against the same mock (the temporary state stays in that container):
@@ -256,18 +252,20 @@ python3 scripts/check-metric-identity.py
 docker rm -f uipath-demo-tenant-b
 ```
 
-This verifies two distinct source instances, unpromoted metric labels and all
-metric dashboard queries, including metadata joins. For an isolated Compose
+This verifies two distinct source instances, unpromoted metric labels and the
+`target_info` metadata join. For an isolated Compose
 project with different port mappings, pass `--metrics-url` to the check.
 
-## Host occupancy dashboard
+## Host occupancy and active jobs
 
 The demo enables runtime collection, current-job snapshots and synthetic account
-names. Open **UiPath host occupancy** from the overview dashboard. It shows host
-capacity/status, running and pending jobs with folder/host/account assignment,
-and recent completions with trace links. Select one source so separate collectors
-or environments cannot be mixed. Runtime capacity always covers the source;
-the folder selector filters job tables only. Missing assignments stay unassigned.
+names; `scripts/check-scheduling.py` asserts the resulting series and snapshot.
+Host state is reported once per machine session and slot capacity per runtime
+type with slots, so a consumer can list hosts without slots (for example
+disconnected or retired machines) separately. Scope views to one source so
+separate collectors or environments cannot be mixed. Runtime capacity always
+covers the source; folder filters apply to jobs only. Missing assignments stay
+unassigned.
 
 Production deployments opt in with `COLLECT_RUNTIMES=true` and
 `COLLECT_JOB_SNAPSHOTS=true`. Add `OR.Robots.Read` to an explicit `UIPATH_SCOPES`
@@ -276,12 +274,12 @@ list; the default list adds it automatically when runtime collection is enabled.
 log delivery and the receiver's searchable source/event fields. The sample
 Elasticsearch template also indexes `uipath.snapshot.valid_until` as a date.
 Existing indices need the corresponding mapping or rollover before this query
-can work; receiver-specific OTLP field paths may require dashboard remapping.
+can work; receivers may store OTLP attributes under different field paths.
 
 The newest unexpired snapshot is usable only when status is `complete`. A zero
 count with that status is known-empty; missing, expired, incomplete or capped
 snapshots mean unknown. Runtime rows require a fresh successful collection and
-current inventory membership. API reads across folders are sequential, so the
-board is an observed operations view, not a transactional scheduler. No next-free
+current inventory membership. API reads across folders are sequential, so this
+is an observed operations view, not a transactional scheduler. No next-free
 countdown or per-job queue outcomes are inferred from past executions. See the
 [telemetry contract](docs/telemetry.md#host-occupancy-and-active-job-snapshots).

@@ -73,8 +73,6 @@ def check(a):
     assert trace, "log has no trace identifier"
     t=request("http://localhost:13200", "/api/traces/"+trace)
     assert t.get("batches") or t.get("resourceSpans"), "referenced trace not stored"
-    d=request("http://localhost:13000", "/api/dashboards/uid/uipath-overview")
-    assert len(d["dashboard"]["panels"])>=10, "dashboard missing"
     check_coverage(a.installation, require_queues=a.queues)
     if a.queues:
         for query in [
@@ -83,7 +81,7 @@ def check(a):
         ]:
             result=request("http://localhost:19090", "/api/v1/query?"+urllib.parse.urlencode({"query":with_source_metadata(query)}))
             assert result["data"]["result"] and float(result["data"]["result"][0]["value"][1]) >= 1, "queue collection/inventory missing"
-    return {"metric_series":int(float(m["data"]["result"][0]["value"][1])),"correlated_logs":l["hits"]["total"]["value"],"trace_lookup":"ok","dashboard_panels":len(d["dashboard"]["panels"]),"collection_health":"ok"}
+    return {"metric_series":int(float(m["data"]["result"][0]["value"][1])),"correlated_logs":l["hits"]["total"]["value"],"trace_lookup":"ok","collection_health":"ok"}
 
 def main():
     p = argparse.ArgumentParser()
@@ -99,7 +97,7 @@ def main():
             return
         except Exception:
             if time.monotonic() >= deadline:
-                raise SystemExit("Smoke test failed: inspect source coverage, OTLP delivery, backend health and dashboard provisioning locally.")
+                raise SystemExit("Smoke test failed: inspect source coverage, OTLP delivery and backend health locally.")
             time.sleep(2)
 
 if __name__ == "__main__":

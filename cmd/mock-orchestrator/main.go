@@ -49,8 +49,12 @@ func main() {
 		now := time.Now().UTC()
 		one, zero, two := int64(1), int64(0), int64(2)
 		rows := []uipath.MachineRuntime{
+			// The API repeats every session once per runtime type, mostly with zero slots.
+			{SessionID: 1, MachineID: 11, HostMachineName: "robot-a.example.com", RuntimeType: "Development", Status: "Busy", MaintenanceMode: "Default", Runtimes: &zero, UsedRuntimes: &zero, ReportingTime: now},
 			{SessionID: 1, MachineID: 11, HostMachineName: "robot-a.example.com", RuntimeType: "Unattended", Status: "Busy", MaintenanceMode: "Default", Runtimes: &one, UsedRuntimes: &one, ReportingTime: now},
+			{SessionID: 2, MachineID: 12, HostMachineName: "robot-b.example.com", RuntimeType: "NonProduction", Status: "Available", MaintenanceMode: "Default", Runtimes: &one, UsedRuntimes: &zero, ReportingTime: now},
 			{SessionID: 2, MachineID: 12, HostMachineName: "robot-b.example.com", RuntimeType: "Unattended", Status: "Available", MaintenanceMode: "Default", Runtimes: &two, UsedRuntimes: &zero, ReportingTime: now},
+			{SessionID: 3, MachineID: 13, HostMachineName: "robot-c.example.com", RuntimeType: "Development", Status: "Disconnected", MaintenanceMode: "Default", Runtimes: &zero, UsedRuntimes: &zero, ReportingTime: now.Add(-time.Hour)},
 			{SessionID: 3, MachineID: 13, HostMachineName: "robot-c.example.com", RuntimeType: "Unattended", Status: "Disconnected", MaintenanceMode: "Default", Runtimes: &zero, UsedRuntimes: &zero, ReportingTime: now.Add(-time.Hour)},
 			{SessionID: 4, MachineID: 14, HostMachineName: "robot-d.example.com", RuntimeType: "Unattended", Status: "Available", MaintenanceMode: "Enabled", Runtimes: &one, UsedRuntimes: &zero, ReportingTime: now},
 		}

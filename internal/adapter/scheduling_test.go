@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -118,6 +119,107 @@ func TestRuntimeStatesAndCoverage(t *testing.T) {
 	domain, health, e := a.runtimes(context.Background(), now.Add(time.Second))
 	if e == nil || len(domain) != 0 || health[0].GetGauge().DataPoints[0].GetAsDouble() != 3 {
 		t.Fatal("failed runtime read reused healthy capacity")
+	}
+}
+
+func TestRuntimeInventoryEmitsSessionsOnceAndOnlySlottedTypes(t *testing.T) {
+	now := time.Now()
+	a, f, _ := testAdapter(t)
+	a.Config.Runtimes = true
+	a.Config.Freshness = time.Minute
+	row := func(session int64, host, kind, status string, capacity, used int64, heartbeat time.Time) uipath.MachineRuntime {
+		r := exampleRuntime(now)
+		r.SessionID, r.MachineID, r.HostMachineName, r.RuntimeType, r.Status = session, session*10, host, kind, status
+		r.Runtimes, r.UsedRuntimes, r.ReportingTime = integer(capacity), integer(used), heartbeat
+		return r
+	}
+	a.Source = &runtimeFake{fakeSource: f, rows: []uipath.MachineRuntime{
+		row(1, "robot-a.example.com", "Development", "Busy", 0, 0, now),
+		row(1, "robot-a.example.com", "NonProduction", "Busy", 1, 0, now.Add(-10*time.Second)),
+		row(1, "robot-a.example.com", "Unattended", "Busy", 2, 1, now),
+		row(2, "robot-b.example.com", "Development", "Disconnected", 0, 0, now.Add(-time.Hour)),
+		row(2, "robot-b.example.com", "Unattended", "Disconnected", 0, 0, now.Add(-time.Hour)),
+	}}
+	domain, _, e := a.runtimes(context.Background(), now)
+	if e != nil {
+		t.Fatal(e)
+	}
+	points := map[string]map[string]float64{}
+	for _, m := range domain {
+		for _, p := range m.GetGauge().DataPoints {
+			key := attribute(p.Attributes, "uipath.session.id") + "/" + attribute(p.Attributes, "uipath.runtime.type")
+			if points[m.Name] == nil {
+				points[m.Name] = map[string]float64{}
+			}
+			points[m.Name][key] = p.GetAsDouble()
+		}
+	}
+	if want := map[string]float64{"1/": 2, "2/": 5}; !maps.Equal(points["uipath.session.status"], want) {
+		t.Fatalf("session status %v", points["uipath.session.status"])
+	}
+	if got := points["uipath.session.last_heartbeat"]["1/"]; got != float64(now.Add(-10*time.Second).UnixMilli())/1000 {
+		t.Fatal("session heartbeat is not the oldest row")
+	}
+	if want := map[string]float64{"1/NonProduction": 1, "1/Unattended": 2}; !maps.Equal(points["uipath.runtime.capacity"], want) {
+		t.Fatalf("zero-slot runtime types exported: %v", points["uipath.runtime.capacity"])
+	}
+	// The session is Busy, but its idle NonProduction slot is still free.
+	if want := map[string]float64{"1/NonProduction": 1, "1/Unattended": 2}; !maps.Equal(points["uipath.runtime.status"], want) {
+		t.Fatalf("runtime status %v", points["uipath.runtime.status"])
+	}
+	if points["uipath.runtime.observed"]["/"] != 5 || points["uipath.session.observed"]["/"] != 2 {
+		t.Fatal("inventory coverage must count every row and session")
+	}
+
+	conflict := row(1, "robot-z.example.com", "Headless", "Busy", 0, 0, now)
+	if validateRuntimes(append(a.Source.(*runtimeFake).rows, conflict), now) == nil {
+		t.Fatal("conflicting session identity accepted")
+	}
+}
+
+func TestRuntimeTypeStatusInheritsDegradedSession(t *testing.T) {
+	r := exampleRuntime(time.Now())
+	for session, want := range map[float64]float64{0: 0, 1: 1, 2: 1, 3: 1, 4: 4, 5: 5, 6: 6, 7: 1} {
+		if got := runtimeTypeStatus(r, session); got != want {
+			t.Fatalf("session %v: got %v", session, got)
+		}
+	}
+	r.UsedRuntimes = integer(2)
+	if runtimeTypeStatus(r, 2) != 3 {
+		t.Fatal("occupied type not reported")
+	}
+}
+
+func TestSessionStateMerge(t *testing.T) {
+	now := time.Now()
+	base := exampleRuntime(now)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*uipath.MachineRuntime)
+		want   float64
+	}{
+		{"maintenance", func(r *uipath.MachineRuntime) { r.MaintenanceMode = "Enabled" }, 4},
+		{"disconnected", func(r *uipath.MachineRuntime) { r.Status = "Disconnected" }, 5},
+		{"unresponsive", func(r *uipath.MachineRuntime) { r.IsUnresponsive = true }, 6},
+		{"unknown", func(r *uipath.MachineRuntime) { r.Status = "Unknown" }, 0},
+		{"stale", func(r *uipath.MachineRuntime) { r.ReportingTime = now.Add(-time.Hour) }, 0},
+		{"occupied", func(r *uipath.MachineRuntime) { r.Status, r.UsedRuntimes = "Busy", integer(2) }, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			other := base
+			other.RuntimeType = "NonProduction"
+			tc.mutate(&other)
+			merged := sessions([]uipath.MachineRuntime{base, other})
+			if len(merged) != 1 || *merged[0].Runtimes != 4 {
+				t.Fatal("session rows not merged")
+			}
+			if got := runtimeStatus(merged[0], now, time.Minute); got != tc.want {
+				t.Fatalf("got %v", got)
+			}
+		})
+	}
+	if *base.Runtimes != 2 {
+		t.Fatal("merge mutated source rows")
 	}
 }
 
